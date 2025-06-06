@@ -1,0 +1,514 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Log Analyzer</title>
+  <link
+    href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css"
+    rel="stylesheet"
+  />
+  <style>
+    body { font-family: Arial, sans-serif; }
+    .form-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      margin-bottom: 10px;
+      align-items: center;
+    }
+    .metrics-summary {
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-bottom: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .serial-number-column { width: 60px; }
+    .radio-group { display: flex; gap: 10px; }
+    .tags-dropdown { width: 180px; }
+    .select2-container { min-width: 180px; max-width: 300px; }
+    .pagination { margin: 15px 0; }
+    .pagination a, .pagination span {
+      margin: 0 5px;
+      text-decoration: none;
+      font-weight: bold;
+    }
+    .pagination a { color: blue; }
+    .pagination .current-page { color: red; }
+    #breakdown {
+      height: 150px;
+      overflow-y: auto;
+      column-width: 45ch;
+      column-gap: 5px;
+      border: 1px solid #ccc;
+      padding: 5px;
+      margin-bottom: 20px;
+    }
+    .query-column {
+      width: 300px;
+      max-width: 300px;
+      word-wrap: break-word;
+      white-space: normal;
+    }
+    .response-column { white-space: pre-wrap; }
+    .read-only {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .read-only-banner {
+      background-color: #ffdddd;
+      border: 1px solid #ffaaaa;
+      padding: 10px;
+      margin-bottom: 15px;
+      text-align: center;
+      font-weight: bold;
+      color: #a00;
+    }
+  </style>
+</head>
+<body>
+  <h1>Log Analyzer</h1>
+  {% if read_only %}
+    <div class="read-only-banner">
+      You are logged in as a read-only user. No changes to the database are permitted.
+    </div>
+  {% endif %}
+
+  <form method="GET" action="/">
+    <div class="form-row">
+      <div>
+        Start Date:
+        <input type="date" name="start_date" value="{{ start_date }}">
+      </div>
+      <div>
+        End Date:
+        <input type="date" name="end_date" value="{{ end_date }}">
+      </div>
+      <div>
+        View:
+        <select name="view_by">
+          <option value="daily"   {% if view_by=='daily'  %}selected{% endif %}>Daily</option>
+          <option value="weekly"  {% if view_by=='weekly' %}selected{% endif %}>Weekly</option>
+          <option value="monthly" {% if view_by=='monthly'%}selected{% endif %}>Monthly</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div>
+        <label for="independent_filter">Independent?</label>
+        <select name="independent" id="independent_filter">
+          {% for option in is_independent_options %}
+            <option value="{{ option }}" {% if option==selected_independent %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="response_review_filter">AI Response Review:</label>
+        <select name="response_review" id="response_review_filter" multiple>
+          {% for opt in response_review_options %}
+            <option value="{{ opt }}" {% if opt in selected_response_review %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="query_review_filter">User Query Review:</label>
+        <select name="query_review" id="query_review_filter" multiple>
+          {% for opt in query_review_options %}
+            <option value="{{ opt }}" {% if opt in selected_query_review %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="urls_review_filter">URLs Review:</label>
+        <select name="urls_review" id="urls_review_filter" multiple>
+          {% for opt in urls_review_options %}
+            <option value="{{ opt }}" {% if opt in selected_urls_review %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="tags_filter">Tags:</label>
+        <select id="tags_filter" name="tags" multiple>
+          {% for tag in available_tags %}
+            <option value="{{ tag }}" {% if tag in selected_tags %}selected{% endif %}>{{ tag }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="has_tags_filter">Has Tags?</label>
+        <select name="has_tags" id="has_tags_filter">
+          {% for option in has_tags_options %}
+            <option value="{{ option }}" {% if option==selected_has_tags %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="review_status_filter">Review Status:</label>
+        <select name="review_status" id="review_status_filter">
+          {% for option in review_status_options %}
+            <option value="{{ option }}" {% if option==selected_review_status %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <button type="button" id="reset-filters">Reset Filters</button>
+      <button type="submit">Filter Logs</button>
+    </div>
+
+    <div class="form-row">
+      <div>
+        <label>Download as:</label>
+        <label><input type="radio" name="download_type" value="csv" checked> CSV</label>
+        <label><input type="radio" name="download_type" value="xls"> XLS</label>
+        <button type="button" id="download-all">Download All</button>
+      </div>
+    </div>
+  </form>
+
+  {{ filter_summary_message|safe }}
+
+  <div id="metrics-summary" class="metrics-summary">
+    <div>{{ metrics_summary.overall }}</div>
+    <div>{{ metrics_summary.independent }}</div>
+    <div>{{ metrics_summary.response }}</div>
+    <div>{{ metrics_summary.query }}</div>
+    <div>{{ metrics_summary.urls }}</div>
+  </div>
+
+  <!-- Top pagination -->
+  <div class="pagination">
+    {% if prev_page %}
+      <a href="?page=1{{ param_str }}">First</a>
+      <a href="?page={{ prev_page }}{{ param_str }}">Previous</a>
+    {% endif %}
+    {% for p in range(1, total_pages+1) %}
+      {% if p==page %}
+        <span class="current-page">{{ p }}</span>
+      {% else %}
+        <a href="?page={{ p }}{{ param_str }}">{{ p }}</a>
+      {% endif %}
+    {% endfor %}
+    {% if next_page %}
+      <a href="?page={{ next_page }}{{ param_str }}">Next</a>
+      <a href="?page={{ total_pages }}{{ param_str }}">Last</a>
+    {% endif %}
+  </div>
+
+  <div id="graph-container">
+    {{ graph_html|safe }}
+  </div>
+
+  <div id="breakdown">
+    {% for line in metrics_text %}
+      <div>{{ line }}</div>
+    {% endfor %}
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th class="serial-number-column">#</th>
+        <th>Timestamp</th>
+        <th class="query-column">Query</th>
+        <th class="response-column">Response</th>
+        <th>Independent?</th>
+        <th>AI Response Review</th>
+        <th>User Query Review</th>
+        <th>URLs Review</th>
+        <th>Tags</th>
+        <th>AI Generated Tags</th>
+        <th>Last Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr data-log-id="{{ log.id }}">
+        <td>{{ (page-1)*50 + loop.index }}</td>
+        <td>{{ log.timestamp }}</td>
+        <td class="query-column">{{ log.query }}</td>
+        <td class="response-column">{{ log.response|safe }}</td>
+        <td>
+          <div class="radio-group">
+            <label>
+              <input type="radio" name="is_independent_{{ log.id }}" value="Yes"
+                {% if log.is_independent_question=='Yes' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              Yes
+            </label>
+            <label>
+              <input type="radio" name="is_independent_{{ log.id }}" value="No"
+                {% if log.is_independent_question=='No' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              No
+            </label>
+          </div>
+        </td>
+        <td>
+          <div class="radio-group">
+            <label>
+              <input type="radio" name="response_review_{{ log.id }}" value="Correct"
+                {% if log.response_review=='Correct' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              Correct
+            </label>
+            <label>
+              <input type="radio" name="response_review_{{ log.id }}" value="Partially"
+                {% if log.response_review=='Partially' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              Partially
+            </label>
+            <label>
+              <input type="radio" name="response_review_{{ log.id }}" value="Incorrect"
+                {% if log.response_review=='Incorrect' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              Incorrect
+            </label>
+            <label>
+              <input type="radio" name="response_review_{{ log.id }}" value="I Don't Know"
+                {% if log.response_review=="I Don't Know" %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              I Don’t Know
+            </label>
+          </div>
+        </td>
+        <td>
+          <div class="radio-group">
+            <label>
+              <input type="radio" name="query_review_{{ log.id }}" value="Good"
+                {% if log.query_review=='Good' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              Good
+            </label>
+            <label>
+              <input type="radio" name="query_review_{{ log.id }}" value="Acceptable"
+                {% if log.query_review=='Acceptable' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              Acceptable
+            </label>
+            <label>
+              <input type="radio" name="query_review_{{ log.id }}" value="Bad"
+                {% if log.query_review=='Bad' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              Bad
+            </label>
+            <label>
+              <input type="radio" name="query_review_{{ log.id }}" value="I Don't Know"
+                {% if log.query_review=="I Don't Know" %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              I Don’t Know
+            </label>
+          </div>
+        </td>
+        <td>
+          <div class="radio-group">
+            <label>
+              <input type="radio" name="urls_review_{{ log.id }}" value="Good"
+                {% if log.urls_review=='Good' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              Good
+            </label>
+            <label>
+              <input type="radio" name="urls_review_{{ log.id }}" value="Acceptable"
+                {% if log.urls_review=='Acceptable' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              Acceptable
+            </label>
+            <label>
+              <input type="radio" name="urls_review_{{ log.id }}" value="Bad"
+                {% if log.urls_review=='Bad' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              Bad
+            </label>
+            <label>
+              <input type="radio" name="urls_review_{{ log.id }}" value="I Don't Know"
+                {% if log.urls_review=="I Don't Know" %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              I Don’t Know
+            </label>
+          </div>
+        </td>
+        <td>
+          {%- set selected = log.tags.split(',') if log.tags else [] -%}
+          <select class="tags-dropdown" multiple data-log-id="{{ log.id }}" {% if read_only %}disabled{% endif %}>
+            {% for tag in available_tags %}
+              <option value="{{ tag }}" {% if tag in selected %}selected{% endif %}>{{ tag }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td>{{ log.ai_generated_tags or '' }}</td>
+        <td class="last-updated">
+          {% if log.last_updated_by and log.last_updated_at %}
+            {{ log.last_updated_by }} @ {{ log.last_updated_at }}
+          {% else %}
+            N/A
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Bottom pagination -->
+  <div class="pagination">
+    {% if prev_page %}
+      <a href="?page=1{{ param_str }}">First</a>
+      <a href="?page={{ prev_page }}{{ param_str }}">Previous</a>
+    {% endif %}
+    {% for p in range(1, total_pages+1) %}
+      {% if p==page %}
+        <span class="current-page">{{ p }}</span>
+      {% else %}
+        <a href="?page={{ p }}{{ param_str }}">{{ p }}</a>
+      {% endif %}
+    {% endfor %}
+    {% if next_page %}
+      <a href="?page={{ next_page }}{{ param_str }}">Next</a>
+      <a href="?page={{ total_pages }}{{ param_str }}">Last</a>
+    {% endif %}
+  </div>
+
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist@2.14.0"></script>
+  <script>
+    $.ajaxSetup({ traditional: true });
+
+    function getCurrentFilters() {
+      return {
+        start_date: $('input[name="start_date"]').val(),
+        end_date:   $('input[name="end_date"]').val(),
+        view_by:    $('select[name="view_by"]').val(),
+        independent: $('#independent_filter').val() || "All",
+        response_review: $('#response_review_filter').val() || [],
+        query_review:    $('#query_review_filter').val() || [],
+        urls_review:     $('#urls_review_filter').val() || [],
+        tags:            $('#tags_filter').val() || [],
+        has_tags:        $('#has_tags_filter').val() || "All",
+        review_status:   $('#review_status_filter').val() || "All"
+      };
+    }
+
+    function updateMetrics(){
+      $.ajax({
+        url: '/get_metrics',
+        method: 'GET',
+        data: getCurrentFilters(),
+        success: function(data){
+          $('#metrics-summary').html(`
+            <div>${data.metrics_summary.overall}</div>
+            <div>${data.metrics_summary.independent}</div>
+            <div>${data.metrics_summary.response}</div>
+            <div>${data.metrics_summary.query}</div>
+            <div>${data.metrics_summary.urls}</div>
+          `);
+        }
+      });
+    }
+
+    function handleIndependentChange(logId) {
+      let indep = $(`input[name="is_independent_${logId}"]:checked`).val() || "";
+      if (indep === "No") {
+        $(`input[name^="response_review_${logId}"], input[name^="query_review_${logId}"], input[name^="urls_review_${logId}"]`)
+          .prop('checked', false).prop('disabled', true);
+        $(`.tags-dropdown[data-log-id='${logId}']`)
+          .val(null).trigger('change').prop('disabled', true);
+      } else {
+        $(`input[name^="response_review_${logId}"], input[name^="query_review_${logId}"], input[name^="urls_review_${logId}"]`)
+          .prop('disabled', false);
+        $(`.tags-dropdown[data-log-id='${logId}']`).prop('disabled', false);
+        if (!$(`input[name="response_review_${logId}"]:checked`).val())
+          $(`input[name="response_review_${logId}"][value="Correct"]`).prop('checked', true);
+        if (!$(`input[name="query_review_${logId}"]:checked`).val())
+          $(`input[name="query_review_${logId}"][value="Good"]`).prop('checked', true);
+        if (!$(`input[name="urls_review_${logId}"]:checked`).val())
+          $(`input[name="urls_review_${logId}"][value="Good"]`).prop('checked', true);
+      }
+    }
+
+    function updateLogEntry(logId){
+      let indep = $(`input[name="is_independent_${logId}"]:checked`).val() || "";
+      let resp  = $(`input[name="response_review_${logId}"]:checked`).val() || "";
+      let qrev  = $(`input[name="query_review_${logId}"]:checked`).val() || "";
+      let urev  = $(`input[name="urls_review_${logId}"]:checked`).val() || "";
+      let tags  = $(`.tags-dropdown[data-log-id='${logId}']`).val() || [];
+
+      if (resp || qrev || urev) {
+        indep = "Yes";
+        $(`input[name="is_independent_${logId}"][value="Yes"]`).prop('checked', true);
+        if (!resp) { resp = "Correct";   $(`input[value="Correct"][name="response_review_${logId}"]`).prop('checked', true); }
+        if (!qrev) { qrev = "Good";      $(`input[value="Good"][name="query_review_${logId}"]`).prop('checked', true); }
+        if (!urev) { urev = "Good";      $(`input[value="Good"][name="urls_review_${logId}"]`).prop('checked', true); }
+      }
+
+      $.ajax({
+        url: '/update_entry',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+          id: logId,
+          is_independent_question: indep,
+          response_review: resp,
+          query_review: qrev,
+          urls_review: urev,
+          tags: tags
+        }),
+        success: function(data){
+          if (data.status === 'success') {
+            $(`tr[data-log-id='${logId}'] .last-updated`)
+              .text(`${data.last_updated_by} @ ${data.last_updated_at}`);
+            updateMetrics();
+          }
+        }
+      });
+    }
+
+    $(document).ready(function(){
+      $('#independent_filter, #response_review_filter, #query_review_filter, #urls_review_filter, #tags_filter, #has_tags_filter, #review_status_filter')
+        .select2({ placeholder: "Select", width: 'style' });
+      $('.tags-dropdown')
+        .select2({ placeholder: "Select tags", tags: true, width: 'style' });
+
+      $('#reset-filters').click(function(){
+        $('#independent_filter').val("All").trigger('change');
+        $('#response_review_filter, #query_review_filter, #urls_review_filter, #tags_filter').val(null).trigger('change');
+        $('#has_tags_filter').val("All").trigger('change');
+        $('#review_status_filter').val("All").trigger('change');
+      });
+
+      $('input[name^="is_independent_"]').change(function(){
+        let id = $(this).closest('tr').data('log-id');
+        handleIndependentChange(id);
+        updateLogEntry(id);
+      });
+      $('input[name^="response_review_"], input[name^="query_review_"], input[name^="urls_review_"]').change(function(){
+        updateLogEntry($(this).closest('tr').data('log-id'));
+      });
+      $('.tags-dropdown').change(function(){
+        updateLogEntry($(this).data('log-id'));
+      });
+      $('#has_tags_filter').change(updateMetrics);
+
+      $('#download-all').click(function(){
+        let file_type = $('input[name="download_type"]:checked').val();
+        let f = getCurrentFilters();
+        let qs = `?file_type=${file_type}`
+               + `&start_date=${encodeURIComponent(f.start_date)}`
+               + `&end_date=${encodeURIComponent(f.end_date)}`
+               + `&view_by=${encodeURIComponent(f.view_by)}`
+               + `&independent=${encodeURIComponent(f.independent)}`
+               + `&has_tags=${encodeURIComponent(f.has_tags)}`
+               + `&review_status=${encodeURIComponent(f.review_status)}`;
+        f.response_review.forEach(v=> qs+=`&response_review=${encodeURIComponent(v)}`);
+        f.query_review.forEach(v=>    qs+=`&query_review=${encodeURIComponent(v)}`);
+        f.urls_review.forEach(v=>     qs+=`&urls_review=${encodeURIComponent(v)}`);
+        f.tags.forEach(v=>            qs+=`&tags=${encodeURIComponent(v)}`);
+        window.location.href = '/download_all' + qs;
+      });
+    });
+  </script>
+</body>
+</html>
