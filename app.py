@@ -35,8 +35,8 @@ DB_FILE = os.getenv('DATABASE_PATH')
 AUTHORIZED_USERS_FILE = os.getenv('AUTHORIZED_USERS_FILE')
 READONLY_USERS_FILE = os.getenv('READONLY_USERS_FILE')
 
-UNAUTHORIZED_LOG_PATH = '/home/jku230/Integration_testing/logs/unauthorized_access.log'
-USER_LOGIN_LOG_PATH = '/home/jku230/Integration_testing/logs/user_logins.log'
+UNAUTHORIZED_LOG_PATH = '/home/jku230/log-analyzer-fabric/logs/unauthorized_access.log'
+USER_LOGIN_LOG_PATH = '/home/jku230/log-analyzer-fabric/logs/user_logins.log'
 
 FILES_OFFSETS_PATH = '/home/griff_uksr_fabric/Integration/file_offsets.json'
 PER_PAGE = 50
@@ -62,7 +62,7 @@ oauth.register(
 )
 
 # Ensure log directory exists
-os.makedirs('/home/jku230/Integration_testing/logs/', exist_ok=True)
+os.makedirs('logs', exist_ok=True)
 
 # --- Logging setup ---
 file_handler = logging.FileHandler('logs/app.log')
@@ -1038,4 +1038,4 @@ def logout():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=2220)
+    app.run(debug=True, host='127.0.0.1', port=2223)
