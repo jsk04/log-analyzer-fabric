@@ -27,13 +27,17 @@ from io import StringIO, BytesIO
 load_dotenv()
 
 # --- Configuration ---
-LOG_DIR = "/home/griff_uksr_fabric/Integration/Logs"
-DB_FILE = 'testing_log_entries.db'
-AUTHORIZED_USERS_FILE = 'authorized_users.txt'
-READONLY_USERS_FILE = 'authorized_users_read_only.txt'
 FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')
-UNAUTHORIZED_LOG_PATH = 'logs/unauthorized_access.log'
-USER_LOGIN_LOG_PATH = 'logs/user_logins.log'
+
+LOG_DIR = os.getenv('LOG_DIR')
+DB_FILE = os.getenv('DATABASE_PATH')
+
+AUTHORIZED_USERS_FILE = os.getenv('AUTHORIZED_USERS_FILE')
+READONLY_USERS_FILE = os.getenv('READONLY_USERS_FILE')
+
+UNAUTHORIZED_LOG_PATH = '/home/jku230/Integration_testing/logs/unauthorized_access.log'
+USER_LOGIN_LOG_PATH = '/home/jku230/Integration_testing/logs/user_logins.log'
+
 FILES_OFFSETS_PATH = '/home/griff_uksr_fabric/Integration/file_offsets.json'
 PER_PAGE = 50
 
@@ -58,7 +62,7 @@ oauth.register(
 )
 
 # Ensure log directory exists
-os.makedirs('logs', exist_ok=True)
+os.makedirs('/home/jku230/Integration_testing/logs/', exist_ok=True)
 
 # --- Logging setup ---
 file_handler = logging.FileHandler('logs/app.log')
@@ -620,9 +624,16 @@ def home_route():
         tool_options=["All", "Code Generation", "Q&A"],
         # Need to fill in model options
         model_options_map = {},
-        model_options=[""],
-        qa_options=[""],
-        cg_options=[""],
+        model_options=["codestral",
+                     "codellama:latest",
+                     "codellama:13b",
+                     "codegemma:7b",
+                     "phi4",
+                     "mistral-small",
+                     "deepseek-coder-v2",
+                     "gpt-4o-mini"],
+        # qa_options=[""],
+        # cg_options=[""],
         is_independent_options=["All", "Yes", "No"],
         response_review_options=["Correct", "Partially", "Incorrect", "I Don't Know"],
         query_review_options=["Good", "Acceptable", "Bad", "I Don't Know"],
@@ -979,12 +990,11 @@ def download_all():
 
 @app.route('/login')
 def login():
-    redirect_uri = 'https://access-ai.ccs.uky.edu:2222/authorize'
+    redirect_uri = os.getenv('REDIRECT_URI')
     nonce = os.urandom(16).hex()
     session['nonce'] = nonce
-    idp_hint = 'https://access-ci.org/idp'
     app.logger.info(f"Redirect URI: {redirect_uri}")
-    return oauth.cilogon.authorize_redirect(redirect_uri, nonce=nonce, idphint=idp_hint)
+    return oauth.cilogon.authorize_redirect(redirect_uri, nonce=nonce)
 
 @app.route('/authorize')
 def authorize():
@@ -996,8 +1006,8 @@ def authorize():
         user['eppn'] = user_info.get('ePPN') or user_info.get('sub')
         session['user'] = user
 
-        # if not in either list, kick them out
-        if not (is_write_user(user['eppn']) or is_read_only_user(user['eppn'])):
+        # if not in write list, kick them out
+        if not (is_write_user(user['eppn'])) and not (is_read_only_user(user['eppn'])):
             ipaddr = request.headers.get('X-Forwarded-For', request.remote_addr)
             unauth_logger.info(f"Unauthorized user {user['eppn']} from {ipaddr}")
             flash('You are not authorized.', 'danger')
