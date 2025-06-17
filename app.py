@@ -936,4 +936,96 @@ def download_all():
                     log['timestamp'],
                     log['query'],
                     log['response'],
-             
+                    log['tool'],
+                    log['model'],
+                    log['tester'],
+                    log['is_independent_question'],
+                    log['response_review'],
+                    log['query_review'],
+                    log['urls_review'],
+                    log.get('last_updated_by',''),
+                    log.get('last_updated_at',''),
+                ])
+                yield buf.getvalue()
+
+        return Response(
+            generate_csv(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename=logs_{timestamp_str}.csv'}
+        )
+
+    # XLS / XLSX
+    elif file_type in ('xls', 'xlsx'):
+        buf = BytesIO()
+        df = pd.DataFrame(rows)
+        # ensure columns order
+        df = df[[
+            'timestamp','query','response', 'tool', 'model', 'tester',
+            'is_independent_question','response_review','query_review','urls_review',
+            'last_updated_by','last_updated_at'
+        ]]
+        with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Logs')
+        buf.seek(0)
+        return send_file(
+            buf,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f'logs_{timestamp_str}.xlsx'
+        )
+
+    else:
+        return "Invalid file type", 400
+
+@app.route('/login')
+def login():
+    redirect_uri = 'https://access-ai.ccs.uky.edu:2222/authorize'
+    nonce = os.urandom(16).hex()
+    session['nonce'] = nonce
+    idp_hint = 'https://access-ci.org/idp'
+    app.logger.info(f"Redirect URI: {redirect_uri}")
+    return oauth.cilogon.authorize_redirect(redirect_uri, nonce=nonce, idphint=idp_hint)
+
+@app.route('/authorize')
+def authorize():
+    try:
+        token = oauth.cilogon.authorize_access_token()
+        nonce = session.pop('nonce', None)
+        user = oauth.cilogon.parse_id_token(token, nonce=nonce)
+        user_info = oauth.cilogon.userinfo()
+        user['eppn'] = user_info.get('ePPN') or user_info.get('sub')
+        session['user'] = user
+
+        # if not in either list, kick them out
+        if not (is_write_user(user['eppn']) or is_read_only_user(user['eppn'])):
+            ipaddr = request.headers.get('X-Forwarded-For', request.remote_addr)
+            unauth_logger.info(f"Unauthorized user {user['eppn']} from {ipaddr}")
+            flash('You are not authorized.', 'danger')
+            session.clear()
+            return redirect(url_for('unauthorized'))
+
+        # otherwise set read_only flag and continue
+        session['read_only'] = is_read_only_user(user['eppn'])
+        user_login_logger.info(f"User {user['eppn']} logged in. Read-only: {session['read_only']}")
+        flash('Authorization successful!', 'success')
+
+    except Exception as e:
+        # if anything went wrong in the try block, log & bounce back home
+        flash(f'Authorization failed: {e}', 'danger')
+        return redirect('/')   # <-- either redirect('/') or url_for('home_route')
+
+    # on success, send them to the real home page
+    return redirect('/')
+
+@app.route('/unauthorized')
+def unauthorized():
+    return render_template('unauthorized.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('home'))
+
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=2220)
