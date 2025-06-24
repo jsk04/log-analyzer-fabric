@@ -35,10 +35,10 @@ DB_FILE = os.getenv('DATABASE_PATH')
 AUTHORIZED_USERS_FILE = os.getenv('AUTHORIZED_USERS_FILE')
 READONLY_USERS_FILE = os.getenv('READONLY_USERS_FILE')
 
-UNAUTHORIZED_LOG_PATH = '/home/jku230/log-analyzer-fabric/logs/unauthorized_access.log'
-USER_LOGIN_LOG_PATH = '/home/jku230/log-analyzer-fabric/logs/user_logins.log'
+UNAUTHORIZED_LOG_PATH = 'logs/unauthorized_access.log'
+USER_LOGIN_LOG_PATH = 'logs/user_logins.log'
 
-FILES_OFFSETS_PATH = '/home/griff_uksr_fabric/Integration/file_offsets.json'
+FILES_OFFSETS_PATH = '/Users/jkurra/Desktop/FABRIC/Integration/file_offsets.json'
 PER_PAGE = 50
 
 # Allowed HTML tags/attributes for the response field
@@ -115,7 +115,7 @@ def init_db():
                     response TEXT,
                     tool TEXT,
                     model TEXT,
-                    tested_by TEXT,
+                    tester TEXT,
                     is_independent_question TEXT DEFAULT '',
                     response_review TEXT DEFAULT '',
                     query_review TEXT DEFAULT '',
@@ -188,7 +188,6 @@ def read_logs_from_files():
 
 # --- Log parsing ---
 def parse_log(content, start_date, end_date):
-    # print("Running parse_log function...")
 
     pattern = re.compile(
             r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - QUERY: (.*?)\nRESPONSE:\s+(.*?)(?:\n+|\s+)MODEL:\s+(.*?)\nTOOL: (.*?)\nTESTER: (.*?)(?=\n\d{4}-\d{2}-\d{2}|\Z)',
@@ -197,7 +196,6 @@ def parse_log(content, start_date, end_date):
     matches = pattern.finditer(content)
     entries = []
     for match in matches:
-        print("Parsing match...")
         ts_str = match.group(1)
         try:
             ts = datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S,%f')
@@ -227,7 +225,7 @@ def insert_log(conn, log):
     if c.fetchone()[0] == 0:
         c.execute('''
             INSERT INTO logs (
-                timestamp, query, response, tool, model, tested_by,
+                timestamp, query, response, tool, model, tester,
                 is_independent_question, response_review,
                 query_review, urls_review
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -248,93 +246,110 @@ def insert_log(conn, log):
     else:
         app.logger.info(f"Log already exists for timestamp: {log['timestamp']}")
 
-def generate_models_graph(logs):
-    metrics = calculate_model_metrics(logs)
-
-    # identify the stack that we want separated visually
-    highlight_group = 'Not Reviewed'
-    spacer_value1 = 0.1
-    spacer_value2 = 0.2
-
-    # Take dictionary and turn it into flat data
-    flat_metrics = []
-    for model, model_metrics in metrics.items():
-        correct = model_metrics.get('Correct', 0)
-        partial = model_metrics.get('Partially Correct', 0)
-        incorrect = model_metrics.get('Incorrect', 0)
-        idk = model_metrics.get("I don't know", 0)
-        not_reviewed = model_metrics.get('Not Reviewed', 0)
-
-        base_sum = correct + partial + incorrect + idk 
-        total_sum = base_sum + not_reviewed
-
-        for metric, val in model_metrics.items():
-            if metric != 'Not Reviewed' and val > 0:
-                percent = pct(val, base_sum)
-                # Add spacer between and Correct and partially correct
-                if metric == 'Correct': 
-                    flat_metrics.append({
-                    'Model': model, 'Metric': 'Spacer1', 'Value': spacer_value1,
-                    'Percent': '', 'CustomHover': ''
-                })
-            if metric == 'Not Reviewed' and val > 0:
-                percent = pct(val, total_sum)
-                # Add spacer between rest of stack and not reviewed
-                flat_metrics.append({
-                    'Model': model, 'Metric': 'Spacer2', 'Value': spacer_value2,
-                    'Percent': '', 'CustomHover': ''
-                })
-
-            flat_metrics.append({
-                'Model': model, 'Metric': metric, 'Value': val,
-                'Percent': f'{pct:.1f}%', 'CustomHover': f'{metric}<br>{pct:.1f}'
-            })
-    
-    # Convert into a data frame 
-    df = pd.DataFrame(flat_metrics)
-
-    # Custom color map
-    color_map = {
-        'Correct': 'rgba(31,255,0,0.4)',
-        'Incorrect': 'rgba(255, 99, 71, 0.8)',
-        'Partially Correct': 'rgba(31,255,0,0.4)',
-        "I don't know": 'rgba(255,255,0,0.7)',
-        "Not Reviewed": 'rgba(180, 180, 180, 1)',
-        "Spacer1": 'rgba(0,0,0,0)',
-        "Spacer2": 'rgba(0,0,0,0)'
-    }
-    category_order = ['Correct', 'Spacer1', 'Partially Correct', 'Incorrect', "I don't know", "Spacer2", "Not Reviewed"]
-
-    # Step 4: Build the plot
-    fig = px.bar(
-        df,
-        x='Model',
-        y='Value',
-        color='Metric',
-        color_discrete_map=color_map,
-        category_orders={'Metric': category_order},
-        custom_data=['CustomHover'],
-        barmode='stack'
-    )
-
-    # Step 5: Customize hover tooltips
-    fig.update_traces(
-        hovertemplate='%{customdata[0]}',
-        selector=lambda trace: trace.name != 'Spacer1' or trace.name != 'Spacer2'
-    )
-
-    # Hide spacer from legend and tooltip
-    fig.for_each_trace(lambda trace: trace.update(showlegend=False, hoverinfo='skip') if trace.name == 'Spacer1' or trace.name == 'Spacer2' else ())
-
-    # Update layout with axis labels and template
+# --- Graph generation ---
+def generate_graph(metrics):
+    dates = list(metrics.keys())
+    vals = list(metrics.values())
+    fig = go.Figure(data=go.Scatter(x=dates, y=vals, mode='lines+markers', name='Queries'))
     fig.update_layout(
-        xaxis_title="Model",
-        yaxis_title="Percent of Model's Queries",
-        title="Accuracy of Responses by Model",
-        template="plotly_white"
+        title='Number of Queries',
+        xaxis_title='Date',
+        yaxis_title='Count',
+        template='plotly_white',
+        height=400,
+        margin=dict(l=40, r=40, t=40, b=40)
     )
+    return pio.to_html(fig, full_html=False)
+    
 
-    return pio.to_html(fig, full_html=False, include_plotlyjs='cdn')
+# ------------------------------------- Function to build models graph --------------------------------
+# def generate_models_graph(logs):
+#     metrics = calculate_model_metrics(logs)
+
+#     # identify the stack that we want separated visually
+#     highlight_group = 'Not Reviewed'
+#     spacer_value1 = 0.1
+#     spacer_value2 = 0.2
+
+#     # Take dictionary and turn it into flat data
+#     flat_metrics = []
+#     for model, model_metrics in metrics.items():
+#         correct = model_metrics.get('Correct', 0)
+#         partial = model_metrics.get('Partially Correct', 0)
+#         incorrect = model_metrics.get('Incorrect', 0)
+#         idk = model_metrics.get("I don't know", 0)
+#         not_reviewed = model_metrics.get('Not Reviewed', 0)
+
+#         base_sum = correct + partial + incorrect + idk 
+#         total_sum = base_sum + not_reviewed
+
+#         for metric, val in model_metrics.items():
+#             if metric != 'Not Reviewed' and val > 0:
+#                 percent = pct(val, base_sum)
+#                 # Add spacer between and Correct and partially correct
+#                 if metric == 'Correct': 
+#                     flat_metrics.append({
+#                     'Model': model, 'Metric': 'Spacer1', 'Value': spacer_value1,
+#                     'Percent': '', 'CustomHover': ''
+#                 })
+#             if metric == 'Not Reviewed' and val > 0:
+#                 percent = pct(val, total_sum)
+#                 # Add spacer between rest of stack and not reviewed
+#                 flat_metrics.append({
+#                     'Model': model, 'Metric': 'Spacer2', 'Value': spacer_value2,
+#                     'Percent': '', 'CustomHover': ''
+#                 })
+
+#             flat_metrics.append({
+#                 'Model': model, 'Metric': metric, 'Value': val,
+#                 'Percent': f'{pct:.1f}%', 'CustomHover': f'{metric}<br>{pct:.1f}'
+#             })
+    
+#     # Convert into a data frame 
+#     df = pd.DataFrame(flat_metrics)
+
+#     # Custom color map
+#     color_map = {
+#         'Correct': 'rgba(31,255,0,0.4)',
+#         'Incorrect': 'rgba(255, 99, 71, 0.8)',
+#         'Partially Correct': 'rgba(31,255,0,0.4)',
+#         "I don't know": 'rgba(255,255,0,0.7)',
+#         "Not Reviewed": 'rgba(180, 180, 180, 1)',
+#         "Spacer1": 'rgba(0,0,0,0)',
+#         "Spacer2": 'rgba(0,0,0,0)'
+#     }
+#     category_order = ['Correct', 'Spacer1', 'Partially Correct', 'Incorrect', "I don't know", "Spacer2", "Not Reviewed"]
+
+#     # Step 4: Build the plot
+#     fig = px.bar(
+#         df,
+#         x='Model',
+#         y='Value',
+#         color='Metric',
+#         color_discrete_map=color_map,
+#         category_orders={'Metric': category_order},
+#         custom_data=['CustomHover'],
+#         barmode='stack'
+#     )
+
+#     # Step 5: Customize hover tooltips
+#     fig.update_traces(
+#         hovertemplate='%{customdata[0]}',
+#         selector=lambda trace: trace.name != 'Spacer1' or trace.name != 'Spacer2'
+#     )
+
+#     # Hide spacer from legend and tooltip
+#     fig.for_each_trace(lambda trace: trace.update(showlegend=False, hoverinfo='skip') if trace.name == 'Spacer1' or trace.name == 'Spacer2' else ())
+
+#     # Update layout with axis labels and template
+#     fig.update_layout(
+#         xaxis_title="Model",
+#         yaxis_title="Percent of Model's Queries",
+#         title="Accuracy of Responses by Model",
+#         template="plotly_white"
+#     )
+
+#     return pio.to_html(fig, full_html=False, include_plotlyjs='cdn')
 
 def get_week_range(year, week_num):
     start_of_year = datetime(year, 1, 1)
@@ -384,24 +399,25 @@ def cnt(reviewed_logs, field, val):
 # Percentage helpers
 def pct(x, base): return round(x / base * 100, 1) if base > 0 else 0
 
-def calculate_model_metrics(logs):
-    models = set()
-    for log in logs:
-        models.add(log['model'])
+# -------------------------- Helper for building models graph ------------------------------
+# def calculate_model_metrics(logs):
+#     models = set()
+#     for log in logs:
+#         models.add(log['model'])
 
-    models_metrics = defaultdict(dict)
-    models_metrics.keys = models
-    for model in models_metrics.key():
-        model_logs = [l for l in logs if l['model'] == model]
-        reviewed_logs = [l for l in model_logs if is_reviewed(l)]
-        models_metrics[model] = {
-            "Not Reviewed": len(model_logs) - len(reviewed_logs),
-            "Correct": cnt(reviewed_logs, "response_review", "Correct"),
-            "Partially Correct": cnt(reviewed_logs, "response_review", "Partially"),
-            "Incorrect": cnt(reviewed_logs, "response_review", "Incorrect"),
-            "I don't know": cnt(reviewed_logs, "response_review", "I Don't Know"),
-        }
-    return models_metrics
+#     models_metrics = defaultdict(dict)
+#     models_metrics.keys = models
+#     for model in models_metrics.key():
+#         model_logs = [l for l in logs if l['model'] == model]
+#         reviewed_logs = [l for l in model_logs if is_reviewed(l)]
+#         models_metrics[model] = {
+#             "Not Reviewed": len(model_logs) - len(reviewed_logs),
+#             "Correct": cnt(reviewed_logs, "response_review", "Correct"),
+#             "Partially Correct": cnt(reviewed_logs, "response_review", "Partially"),
+#             "Incorrect": cnt(reviewed_logs, "response_review", "Incorrect"),
+#             "I don't know": cnt(reviewed_logs, "response_review", "I Don't Know"),
+#         }
+#     return models_metrics
 
 def calculate_review_counts(logs):
     total = len(logs)
@@ -439,9 +455,9 @@ def get_paginated_logs(logs, page, per_page):
 # --- Routes ---
 @app.route('/', methods=['GET'])
 def home_route():
-    if 'user' not in session:
-        flash('You must be logged in.', 'danger')
-        return redirect(url_for('login'))
+    # if 'user' not in session:
+    #     flash('You must be logged in.', 'danger')
+    #     return redirect(url_for('login'))
 
     today = datetime.now().strftime('%Y-%m-%d')
     start_date = request.args.get('start_date', today)
@@ -605,7 +621,7 @@ def home_route():
         'index.html',
         logs=paginated_logs,
         total_logs=total_logs,
-        graph_html=generate_models_graph(all_entries),
+        graph_html=generate_graph(mets),
         metrics_text=[f"{k}: {v} queries" for k, v in mets.items()],
         metrics_summary=metrics_summary,
         filter_summary_message=Markup(f"<h3>Total Queries in Selected Range</h3>"),
@@ -624,7 +640,7 @@ def home_route():
         tool_options=["All", "Code Generation", "Q&A"],
         # Need to fill in model options
         model_options_map = {},
-        model_options=["codestral",
+        model_options=["All", "codestral",
                      "codellama:latest",
                      "codellama:13b",
                      "codegemma:7b",
@@ -756,7 +772,7 @@ def get_metrics_endpoint():
 
         # apply all filters...
         if tool != 'All':
-            sql += " AND tool=?",
+            sql += " AND tool=?"
             params.append(tool)
         if model != "All":
             sql += " AND model=?"
@@ -988,54 +1004,56 @@ def download_all():
     else:
         return "Invalid file type", 400
 
-@app.route('/login')
-def login():
-    redirect_uri = os.getenv('REDIRECT_URI')
-    nonce = os.urandom(16).hex()
-    session['nonce'] = nonce
-    app.logger.info(f"Redirect URI: {redirect_uri}")
-    return oauth.cilogon.authorize_redirect(redirect_uri, nonce=nonce)
+# ----------------------------------- Functions corresponding to Existing Authorization system --------------------------------------
 
-@app.route('/authorize')
-def authorize():
-    try:
-        token = oauth.cilogon.authorize_access_token()
-        nonce = session.pop('nonce', None)
-        user = oauth.cilogon.parse_id_token(token, nonce=nonce)
-        user_info = oauth.cilogon.userinfo()
-        user['eppn'] = user_info.get('ePPN') or user_info.get('sub')
-        session['user'] = user
+# @app.route('/login')
+# def login():
+#     redirect_uri = os.getenv('REDIRECT_URI')
+#     nonce = os.urandom(16).hex()
+#     session['nonce'] = nonce
+#     app.logger.info(f"Redirect URI: {redirect_uri}")
+#     return oauth.cilogon.authorize_redirect(redirect_uri, nonce=nonce)
 
-        # if not in write list, kick them out
-        if not (is_write_user(user['eppn'])) and not (is_read_only_user(user['eppn'])):
-            ipaddr = request.headers.get('X-Forwarded-For', request.remote_addr)
-            unauth_logger.info(f"Unauthorized user {user['eppn']} from {ipaddr}")
-            flash('You are not authorized.', 'danger')
-            session.clear()
-            return redirect(url_for('unauthorized'))
+# @app.route('/authorize')
+# def authorize():
+#     try:
+#         token = oauth.cilogon.authorize_access_token()
+#         nonce = session.pop('nonce', None)
+#         user = oauth.cilogon.parse_id_token(token, nonce=nonce)
+#         user_info = oauth.cilogon.userinfo()
+#         user['eppn'] = user_info.get('ePPN') or user_info.get('sub')
+#         session['user'] = user
 
-        # otherwise set read_only flag and continue
-        session['read_only'] = is_read_only_user(user['eppn'])
-        user_login_logger.info(f"User {user['eppn']} logged in. Read-only: {session['read_only']}")
-        flash('Authorization successful!', 'success')
+#         # if not in write list, kick them out
+#         if not (is_write_user(user['eppn'])) and not (is_read_only_user(user['eppn'])):
+#             ipaddr = request.headers.get('X-Forwarded-For', request.remote_addr)
+#             unauth_logger.info(f"Unauthorized user {user['eppn']} from {ipaddr}")
+#             flash('You are not authorized.', 'danger')
+#             session.clear()
+#             return redirect(url_for('unauthorized'))
 
-    except Exception as e:
-        # if anything went wrong in the try block, log & bounce back home
-        flash(f'Authorization failed: {e}', 'danger')
-        return redirect('/')   # <-- either redirect('/') or url_for('home_route')
+#         # otherwise set read_only flag and continue
+#         session['read_only'] = is_read_only_user(user['eppn'])
+#         user_login_logger.info(f"User {user['eppn']} logged in. Read-only: {session['read_only']}")
+#         flash('Authorization successful!', 'success')
 
-    # on success, send them to the real home page
-    return redirect('/')
+#     except Exception as e:
+#         # if anything went wrong in the try block, log & bounce back home
+#         flash(f'Authorization failed: {e}', 'danger')
+#         return redirect('/')   # <-- either redirect('/') or url_for('home_route')
 
-@app.route('/unauthorized')
-def unauthorized():
-    return render_template('unauthorized.html')
+#     # on success, send them to the real home page
+#     return redirect('/')
 
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('home'))
+# @app.route('/unauthorized')
+# def unauthorized():
+#     return render_template('unauthorized.html')
+
+# @app.route('/logout')
+# def logout():
+#     session.clear()
+#     return redirect(url_for('home'))
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='127.0.0.1', port=2223)
+    app.run(debug=True, host='gh3-internal.ccs.uky.edu', port=7865)
