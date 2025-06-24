@@ -239,7 +239,7 @@
         <th>Last Updated</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="logs-table-body">
       {% for log in logs %}
       <tr data-log-id="{{ log.id }}">
         <td>{{ (page-1)*50 + loop.index }}</td>
@@ -341,7 +341,7 @@
   </table>
 
   <!-- Bottom pagination -->
-  <div class="pagination">
+  <div class="pagination" id="pagination-controls">
     {% if prev_page %}
       <a href="?page=1{{ param_str }}">First</a>
       <a href="?page={{ prev_page }}{{ param_str }}">Previous</a>
@@ -463,10 +463,10 @@
         }
       });
     }
-
+    
     $(document).ready(function(){
       $('#tool_filter, #model_filter, #independent_filter, #response_review_filter, #query_review_filter, #urls_review_filter, #review_status_filter')
-        .select2({ placeholder: "Select", width: 'style' });
+        .select2({ placeholder: "Select", width: 'style' })
 
       $('#reset-filters').click(function(){
         $('#tool_filter').val("All").trigger('change');
