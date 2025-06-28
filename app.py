@@ -39,7 +39,7 @@ UNAUTHORIZED_LOG_PATH = 'logs/unauthorized_access.log'
 USER_LOGIN_LOG_PATH = 'logs/user_logins.log'
 
 FILES_OFFSETS_PATH = '/Users/jkurra/Desktop/FABRIC/Integration/file_offsets.json'
-PER_PAGE = 50
+PER_PAGE = 10
 
 # Allowed HTML tags/attributes for the response field
 ALLOWED_TAGS = ['a', 'br', 'code', 'pre', 'em', 'strong', 'p', 'span']
@@ -703,7 +703,7 @@ def update_entry():
             if not new['query']:    new['query']    = 'Good'
             if not new['urls']:     new['urls']     = 'Good'
 
-        reviewer = session['user']['eppn']
+        # reviewer = session['user']['eppn']
         ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         # 3) Update the DB
@@ -715,7 +715,6 @@ def update_entry():
                        response_review=?,
                        query_review=?,
                        urls_review=?,
-                       last_updated_by=?,
                        last_updated_at=?
                  WHERE id=?
             """, (
@@ -723,7 +722,6 @@ def update_entry():
                 new['response'],
                 new['query'],
                 new['urls'],
-                reviewer,
                 ts,
                 log_id
             ))
@@ -739,7 +737,6 @@ def update_entry():
 
         return jsonify({
             'status': 'success',
-            'last_updated_by': reviewer,
             'last_updated_at': ts
         })
 
