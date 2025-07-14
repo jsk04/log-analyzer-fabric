@@ -65,7 +65,37 @@
       word-wrap: break-word;
       white-space: normal;
     }
-    .response-column { white-space: pre-wrap; }
+    .response-column h1,
+    .response-column h2,
+    .response-column h3,
+    .response-column h4,
+    .response-column h5,
+    .response-column h6 {
+      font-size: 1rem;
+      margin: 0.5em 0;
+    }
+
+    .response-column p {
+      margin: 0.5em 0; /* reduce space between paragraphs */
+    }
+
+    .response-column pre,
+    .response-column code {
+      font-family: monospace;
+      background-color: #f4f4f4;
+      padding: 0.5em;
+      border-radius: 4px;
+      display: block;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+
+   .response-column {
+     font-family: sans-serif;
+     line-height: 1.4;
+     white-space: normal;
+    }
+   
     .read-only {
       opacity: 0.5;
       cursor: not-allowed;
