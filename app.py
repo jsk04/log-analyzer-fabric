@@ -4,6 +4,7 @@ import os
 import sqlite3
 import logging
 import re
+import json
 import gzip
 import io
 import csv
@@ -19,20 +20,25 @@ from authlib.integrations.flask_client import OAuth
 from markupsafe import Markup, escape
 import plotly.graph_objs as go
 import plotly.io as pio
+import plotly.express as px
 import bleach
 from io import StringIO, BytesIO
 
 load_dotenv()
 
 # --- Configuration ---
-LOG_DIR = "/LOCATION/OF/YOUR/QA-TOOL/LOG-FOLDER/"
-DB_FILE = 'qa_log_entries.db'
-AUTHORIZED_USERS_FILE = 'authorized_users.txt'
-READONLY_USERS_FILE = 'authorized_users_read_only.txt'
-TAGS_FILE = 'tags.txt'
 FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')
-UNAUTHORIZED_LOG_PATH = 'logs/unauthorized_access.log'
-USER_LOGIN_LOG_PATH = 'logs/user_logins.log'
+
+LOG_DIR = os.getenv('LOG_DIR')
+DB_FILE = os.getenv('DATABASE_PATH')
+
+AUTHORIZED_USERS_FILE = os.getenv('AUTHORIZED_USERS_FILE')
+READONLY_USERS_FILE = os.getenv('READONLY_USERS_FILE')
+
+UNAUTHORIZED_LOG_PATH = '/home/anra240/0709test/log-analyzer-fabric/logs/unauthorized_access.log'
+USER_LOGIN_LOG_PATH = '/home/anra240/0709test/log-analyzer-fabric/logs/user_logins.log'
+
+FILES_OFFSETS_PATH = '/home/griff_uksr_fabric/Integration/file_offsets.json'
 PER_PAGE = 50
 
 # Allowed HTML tags/attributes for the response field
@@ -44,6 +50,11 @@ ALLOWED_ATTRIBUTES = {
 
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
+
+
+from auth import auth_bp, login_required
+app.register_blueprint(auth_bp)
+
 
 # --- OAuth with CILogon ---
 oauth = OAuth(app)
@@ -107,12 +118,13 @@ def init_db():
                     timestamp TEXT,
                     query TEXT,
                     response TEXT,
+                    tool TEXT,
+                    model TEXT,
+                    tested_by TEXT,
                     is_independent_question TEXT DEFAULT '',
                     response_review TEXT DEFAULT '',
                     query_review TEXT DEFAULT '',
                     urls_review TEXT DEFAULT '',
-                    tags TEXT DEFAULT '',
-                    ai_generated_tags TEXT DEFAULT '',
                     last_updated_by TEXT DEFAULT NULL,
                     last_updated_at TEXT DEFAULT NULL
                 )
@@ -127,6 +139,16 @@ def init_db():
             for log in logs:
                 insert_log(conn, log)
 
+def load_offsets():
+    if os.path.exists(FILES_OFFSETS_PATH):
+        with open(FILES_OFFSETS_PATH, 'r') as f:
+            return json.load(f)
+    return {}
+
+# Save current file positions
+def save_offsets(positions):
+    with open(FILES_OFFSETS_PATH, 'w') as f:
+        json.dump(positions, f)
 
 def read_logs_from_files():
     log_entries = []
@@ -134,19 +156,26 @@ def read_logs_from_files():
     end_date = datetime.now()
     app.logger.info(f"Scanning log directory: {LOG_DIR}")
 
+    # Get the file positions info
+    file_positions = load_offsets()
+    
     for filename in sorted(os.listdir(LOG_DIR), reverse=True):
         filepath = os.path.join(LOG_DIR, filename)
-        if not (filename.startswith('simple_qa.log') and (filename.endswith('.log') or filename.endswith('.gz'))):
+        if not filename.endswith('_custom.log'):
             app.logger.info(f"Skipping file: {filename}")
             continue
+
+        # Get the last read position of the file 
+        # If it hasn't been read before, set it to 0
+        last_pos = file_positions.get(filename, 0)
         app.logger.info(f"Reading log file: {filepath}")
         try:
-            if filename.endswith('.gz'):
-                with gzip.open(filepath, 'rt') as f:
-                    log_entries.extend(parse_log(f, start_date, end_date))
-            else:
-                with open(filepath, 'r') as f:
-                    log_entries.extend(parse_log(f, start_date, end_date))
+            with open(filepath, 'r') as f:
+                # Only read from last read position 
+                f.seek(last_pos)
+                new_content = f.read()
+                log_entries.extend(parse_log(new_content, start_date, end_date))
+                file_positions[filename] = f.tell()
         except Exception as e:
             app.logger.error(f"Error processing file {filepath}: {e}")
 
@@ -162,17 +191,18 @@ def read_logs_from_files():
     app.logger.info(f"Total log entries found: {len(log_entries)}")
     return log_entries
 
-
 # --- Log parsing ---
-def parse_log(file, start_date, end_date):
+def parse_log(content, start_date, end_date):
+    # print("Running parse_log function...")
+
     pattern = re.compile(
-        r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - QUERY: (.*?)\nRESPONSE: (.*?)(?=\n\d{4}-\d{2}-\d{2}|\Z)',
-        re.DOTALL
-    )
-    content = file.read()
+            r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - QUERY: (.*?)\nRESPONSE:\s+(.*?)(?:\n+|\s+)MODEL:\s+(.*?)\nTOOL: (.*?)\nTESTER: (.*?)(?=\n\d{4}-\d{2}-\d{2}|\Z)',
+                    re.DOTALL | re.MULTILINE
+            )
     matches = pattern.finditer(content)
     entries = []
     for match in matches:
+        print("Parsing match...")
         ts_str = match.group(1)
         try:
             ts = datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S,%f')
@@ -186,15 +216,15 @@ def parse_log(file, start_date, end_date):
                 'timestamp': ts_str,
                 'query': match.group(2).strip(),
                 'response': response,
+                'tool': match.group(5).strip(),
+                'model': match.group(4).strip(),
+                'tester': match.group(6).strip(),
                 'is_independent_question': '',
                 'response_review': '',
                 'query_review': '',
-                'urls_review': '',
-                'tags': ''
+                'urls_review': ''
             })
-    app.logger.info(f"Parsed {len(entries)} entries from file.")
     return entries
-
 
 def insert_log(conn, log):
     c = conn.cursor()
@@ -202,59 +232,124 @@ def insert_log(conn, log):
     if c.fetchone()[0] == 0:
         c.execute('''
             INSERT INTO logs (
-                timestamp, query, response,
+                timestamp, query, response, tool, model, tested_by,
                 is_independent_question, response_review,
-                query_review, urls_review, tags, ai_generated_tags
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '')
+                query_review, urls_review
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             log['timestamp'],
             log['query'],
             log['response'],
+            log['tool'],
+            log['model'],
+            log['tester'],
             log['is_independent_question'],
             log['response_review'],
             log['query_review'],
-            log['urls_review'],
-            log['tags']
+            log['urls_review']
         ))
         conn.commit()
         app.logger.info(f"Inserted log with timestamp: {log['timestamp']}")
     else:
         app.logger.info(f"Log already exists for timestamp: {log['timestamp']}")
 
-def read_tags():
-    """
-    Read tags.txt, ignore blank lines and lines starting with '#',
-    and return a de-duplicated, order-preserving list of tags.
-    """
-    if os.path.exists(TAGS_FILE):
-        seen = set()
-        tags = []
-        with open(TAGS_FILE, 'r') as f:
-            for raw in f:
-                line = raw.strip()
-                if not line or line.startswith('#'):
-                    continue
-                if line not in seen:
-                    seen.add(line)
-                    tags.append(line)
-        return tags
-    return []
+def generate_models_graph(logs):
+    metrics = calculate_model_metrics(logs)
 
-# --- Graph generation ---
-def generate_graph(metrics):
-    dates = list(metrics.keys())
-    vals = list(metrics.values())
-    fig = go.Figure(data=go.Scatter(x=dates, y=vals, mode='lines+markers', name='Queries'))
-    fig.update_layout(
-        title='Number of Queries',
-        xaxis_title='Date',
-        yaxis_title='Count',
-        template='plotly_white',
-        height=400,
-        margin=dict(l=40, r=40, t=40, b=40)
+    # identify the stack that we want separated visually
+    highlight_group = 'Not Reviewed'
+    spacer_value1 = 0.1
+    spacer_value2 = 0.2
+
+    # Take dictionary and turn it into flat data
+    flat_metrics = []
+    for model, model_metrics in metrics.items():
+        correct = model_metrics.get('Correct', 0)
+        partial = model_metrics.get('Partially Correct', 0)
+        incorrect = model_metrics.get('Incorrect', 0)
+        idk = model_metrics.get("I don't know", 0)
+        not_reviewed = model_metrics.get('Not Reviewed', 0)
+
+        base_sum = correct + partial + incorrect + idk 
+        total_sum = base_sum + not_reviewed
+
+        for metric, val in model_metrics.items():
+            if metric != 'Not Reviewed' and val > 0:
+                percent = pct(val, base_sum)
+                # Add spacer between and Correct and partially correct
+                if metric == 'Correct': 
+                    flat_metrics.append({
+                    'Model': model, 'Metric': 'Spacer1', 'Value': spacer_value1,
+                    'Percent': '', 'CustomHover': ''
+                })
+            if metric == 'Not Reviewed' and val > 0:
+                percent = pct(val, total_sum)
+                # Add spacer between rest of stack and not reviewed
+                flat_metrics.append({
+                    'Model': model, 'Metric': 'Spacer2', 'Value': spacer_value2,
+                    'Percent': '', 'CustomHover': ''
+                })
+
+            flat_metrics.append({
+                'Model': model, 
+                'Metric': metric, 
+                'Value': val,
+                'Percent': f'{percent:.1f}%', 
+                'CustomHover': f'{metric}<br>{percent:.1f}'
+            })
+    
+    # Convert into a data frame 
+    df = pd.DataFrame(flat_metrics)
+
+    # Check if empty
+    if df.empty:
+        print("[DEBUG] Empty DataFrame! Check your log inputs.")
+        print("[DEBUG] flat_metrics:", flat_metrics)
+        return "<p>No data available to generate graph.</p>"
+
+
+    # Custom color map
+    color_map = {
+        'Correct': 'rgba(31,255,0,0.4)',
+        'Incorrect': 'rgba(255, 99, 71, 0.8)',
+        'Partially Correct': 'rgba(31,255,0,0.4)',
+        "I don't know": 'rgba(255,255,0,0.7)',
+        "Not Reviewed": 'rgba(180, 180, 180, 1)',
+        "Spacer1": 'rgba(0,0,0,0)',
+        "Spacer2": 'rgba(0,0,0,0)'
+    }
+    category_order = ['Correct', 'Spacer1', 'Partially Correct', 'Incorrect', "I don't know", "Spacer2", "Not Reviewed"]
+
+    # Step 4: Build the plot
+    fig = px.bar(
+        df,
+        x='Model',
+        y='Value',
+        color='Metric',
+        color_discrete_map=color_map,
+        category_orders={'Metric': category_order},
+        custom_data=['CustomHover'],
+        barmode='stack'
     )
-    return pio.to_html(fig, full_html=False)
 
+    # Step 5: Customize hover tooltips
+    fig.update_traces(
+        hovertemplate='%{customdata[0]}',
+        selector=lambda trace: trace.name != 'Spacer1' or trace.name != 'Spacer2'
+    )
+
+    # Hide spacer from legend and tooltip
+    fig.for_each_trace(lambda trace: trace.update(showlegend=False, hoverinfo='skip') if trace.name == 'Spacer1' or trace.name == 'Spacer2' else ())
+
+    # Update layout with axis labels and template
+    fig.update_layout(
+        xaxis_title="Model",
+        yaxis_title="Percent of Model's Queries",
+        title="Accuracy of Responses by Model",
+        template="plotly_white"
+    )
+
+    return pio.to_html(fig, full_html=False, include_plotlyjs='cdn')
 
 def get_week_range(year, week_num):
     start_of_year = datetime(year, 1, 1)
@@ -262,7 +357,6 @@ def get_week_range(year, week_num):
     start_of_week -= timedelta(days=start_of_week.weekday())
     end_of_week = start_of_week + timedelta(days=6)
     return start_of_week.strftime('%Y-%m-%d'), end_of_week.strftime('%Y-%m-%d')
-
 
 def calculate_metrics(logs, view_by):
     metrics = defaultdict(int)
@@ -295,9 +389,35 @@ def is_reviewed(log):
         log.get('response_review'),
         log.get('query_review'),
         log.get('urls_review'),
-        log.get('tags'),
         log.get('last_updated_at')
     ])
+
+def cnt(reviewed_logs, field, val):
+    return sum(1 for l in reviewed_logs if l.get(field) == val)
+
+
+# Percentage helpers
+def pct(x, base): return round(x / base * 100, 1) if base > 0 else 0
+
+def calculate_model_metrics(logs):
+    models = set()
+    for log in logs:
+        models.add(log['model'])
+
+    models_metrics = defaultdict(dict)
+
+    for model in models:
+        model_logs = [l for l in logs if l['model'] == model]
+        reviewed_logs = [l for l in model_logs if is_reviewed(l)]
+        models_metrics[model] = {
+            "Not Reviewed": len(model_logs) - len(reviewed_logs),
+            "Correct": cnt(reviewed_logs, "response_review", "Correct"),
+            "Partially Correct": cnt(reviewed_logs, "response_review", "Partially"),
+            "Incorrect": cnt(reviewed_logs, "response_review", "Incorrect"),
+            "I don't know": cnt(reviewed_logs, "response_review", "I Don't Know"),
+        }
+
+    return models_metrics
 
 
 def calculate_review_counts(logs):
@@ -307,27 +427,24 @@ def calculate_review_counts(logs):
     indep_yes = sum(1 for l in reviewed_logs if l['is_independent_question'] == "Yes")
     indep_no = sum(1 for l in reviewed_logs if l['is_independent_question'] == "No")
 
-    def cnt(field, val):
-        return sum(1 for l in reviewed_logs if l.get(field) == val)
-
     return {
         "total": total,
         "reviewed": len(reviewed_logs),
         "not_reviewed": len(not_reviewed_logs),
         "indep_yes": indep_yes,
         "indep_no": indep_no,
-        "resp_correct": cnt("response_review", "Correct"),
-        "resp_partially": cnt("response_review", "Partially"),
-        "resp_incorrect": cnt("response_review", "Incorrect"),
-        "resp_idk": cnt("response_review", "I Don't Know"),
-        "query_good": cnt("query_review", "Good"),
-        "query_acceptable": cnt("query_review", "Acceptable"),
-        "query_bad": cnt("query_review", "Bad"),
-        "query_idk": cnt("query_review", "I Don't Know"),
-        "urls_good": cnt("urls_review", "Good"),
-        "urls_acceptable": cnt("urls_review", "Acceptable"),
-        "urls_bad": cnt("urls_review", "Bad"),
-        "urls_idk": cnt("urls_review", "I Don't Know")
+        "resp_correct": cnt(reviewed_logs, "response_review", "Correct"),
+        "resp_partially": cnt(reviewed_logs, "response_review", "Partially"),
+        "resp_incorrect": cnt(reviewed_logs, "response_review", "Incorrect"),
+        "resp_idk": cnt(reviewed_logs, "response_review", "I Don't Know"),
+        "query_good": cnt(reviewed_logs, "query_review", "Good"),
+        "query_acceptable": cnt(reviewed_logs, "query_review", "Acceptable"),
+        "query_bad": cnt(reviewed_logs, "query_review", "Bad"),
+        "query_idk": cnt(reviewed_logs, "query_review", "I Don't Know"),
+        "urls_good": cnt(reviewed_logs, "urls_review", "Good"),
+        "urls_acceptable": cnt(reviewed_logs, "urls_review", "Acceptable"),
+        "urls_bad": cnt(reviewed_logs, "urls_review", "Bad"),
+        "urls_idk": cnt(reviewed_logs, "urls_review", "I Don't Know")
     }
 
 
@@ -338,10 +455,11 @@ def get_paginated_logs(logs, page, per_page):
 
 # --- Routes ---
 @app.route('/', methods=['GET'])
+@login_required
 def home_route():
-    if 'user' not in session:
-        flash('You must be logged in.', 'danger')
-        return redirect(url_for('login'))
+#    if 'user' not in session:
+#       flash('You must be logged in.', 'danger')
+#        return redirect(url_for('login'))
 
     today = datetime.now().strftime('%Y-%m-%d')
     start_date = request.args.get('start_date', today)
@@ -350,14 +468,13 @@ def home_route():
     page = int(request.args.get('page', 1))
 
     # existing filters
+    selected_tool = request.args.get('tool', 'All')
+    selected_model = request.args.get('model', 'All')
     selected_independent = request.args.get('independent', 'All')
     selected_response_review = request.args.getlist('response_review')
     selected_query_review = request.args.getlist('query_review')
     selected_urls_review = request.args.getlist('urls_review')
-    selected_tags = request.args.getlist('tags')
     selected_review_status = request.args.get('review_status', 'All')
-    # new has_tags filter
-    selected_has_tags = request.args.get('has_tags', 'All')
 
     init_db()
 
@@ -367,6 +484,12 @@ def home_route():
         sql = "SELECT * FROM logs WHERE timestamp BETWEEN ? AND ?"
         params = [f"{start_date} 00:00:00,000", f"{end_date} 23:59:59,999"]
 
+        if selected_tool != 'All':
+            sql += " AND tool=?",
+            params.append(selected_tool)
+        if selected_model != "All":
+            sql += " AND model=?"
+            params.append(selected_model)
         if selected_independent != "All":
             sql += " AND is_independent_question=?"
             params.append(selected_independent)
@@ -385,7 +508,6 @@ def home_route():
                 "response_review<>''",
                 "query_review<>''",
                 "urls_review<>''",
-                "tags<>''",
                 "last_updated_at IS NOT NULL"
             ]) + ")"
         elif selected_review_status == "Not Reviewed":
@@ -394,23 +516,8 @@ def home_route():
                 "response_review='' ",
                 "query_review='' ",
                 "urls_review='' ",
-                "tags='' ",
                 "last_updated_at IS NULL"
             ]) + ")"
-        if selected_tags:
-            sql += " AND ("
-            for idx, tag in enumerate(selected_tags):
-                sql += "(tags LIKE ? OR ai_generated_tags LIKE ?)"
-                params.extend([f'%{tag}%', f'%{tag}%'])
-                if idx < len(selected_tags) - 1:
-                    sql += " OR "
-            sql += ")"
-
-        # apply has_tags filter
-        if selected_has_tags == "Has":
-            sql += " AND (tags<>'' OR ai_generated_tags<>'')"
-        elif selected_has_tags == "None":
-            sql += " AND tags='' AND ai_generated_tags=''"
 
         sql += " ORDER BY timestamp DESC"
         c.execute(sql, params)
@@ -440,9 +547,6 @@ def home_route():
 
     mets = calculate_metrics(all_entries, view_by)
     rc = calculate_review_counts(all_entries)
-
-    # Percentage helpers
-    def pct(x, base): return round(x / base * 100, 1) if base > 0 else 0
 
     total = rc["total"]
     reviewed = rc["reviewed"]
@@ -514,34 +618,40 @@ def home_route():
         param_str += f"&query_review={param_escape(qr)}"
     for ur in selected_urls_review:
         param_str += f"&urls_review={param_escape(ur)}"
-    for t in selected_tags:
-        param_str += f"&tags={param_escape(t)}"
-    # include has_tags in param_str
-    param_str += f"&has_tags={param_escape(selected_has_tags)}"
 
     return render_template(
         'index.html',
         logs=paginated_logs,
         total_logs=total_logs,
-        available_tags=read_tags(),
-        graph_html=generate_graph(mets),
+        graph_html=generate_models_graph(all_entries),
         metrics_text=[f"{k}: {v} queries" for k, v in mets.items()],
         metrics_summary=metrics_summary,
         filter_summary_message=Markup(f"<h3>Total Queries in Selected Range</h3>"),
         start_date=start_date,
         end_date=end_date,
         view_by=view_by,
+        selected_tool=selected_tool,
+        selected_model=selected_model,
         selected_independent=selected_independent,
         selected_response_review=selected_response_review,
         selected_query_review=selected_query_review,
         selected_urls_review=selected_urls_review,
-        selected_tags=selected_tags,
         selected_review_status=selected_review_status,
-        # new has_tags parameters
-        selected_has_tags=selected_has_tags,
-        has_tags_options=["All", "Has", "None"],
 
         review_status_options=["All", "Reviewed", "Not Reviewed"],
+        tool_options=["All", "Code Generation", "Q&A"],
+        # Need to fill in model options
+        model_options_map = {},
+        model_options=["codestral",
+                     "codellama:latest",
+                     "codellama:13b",
+                     "codegemma:7b",
+                     "phi4",
+                     "mistral-small",
+                     "deepseek-coder-v2",
+                     "gpt-4o-mini"],
+        # qa_options=[""],
+        # cg_options=[""],
         is_independent_options=["All", "Yes", "No"],
         response_review_options=["Correct", "Partially", "Incorrect", "I Don't Know"],
         query_review_options=["Good", "Acceptable", "Bad", "I Don't Know"],
@@ -554,6 +664,10 @@ def home_route():
         read_only=session.get('read_only', False)
     )
 
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    return render_template('dashboard.html', user=session['user_id'])
 
 @app.route('/update_entry', methods=['POST'])
 def update_entry():
@@ -573,8 +687,7 @@ def update_entry():
                 SELECT is_independent_question AS independent,
                        response_review        AS response,
                        query_review           AS query,
-                       urls_review            AS urls,
-                       tags
+                       urls_review            AS urls
                   FROM logs
                  WHERE id=?
             """, (log_id,))
@@ -585,12 +698,11 @@ def update_entry():
             'independent': data.get('is_independent_question', ''),
             'response':    data.get('response_review',       ''),
             'query':       data.get('query_review',          ''),
-            'urls':        data.get('urls_review',           ''),
-            'tags':        ','.join(data.get('tags', []))
+            'urls':        data.get('urls_review',           '')
         }
 
         if new['independent'] == 'No':
-            new.update({'response':'', 'query':'', 'urls':'', 'tags':''})
+            new.update({'response':'', 'query':'', 'urls':''})
         else:
             new['independent'] = 'Yes'
             if not new['response']: new['response'] = 'Correct'
@@ -609,7 +721,6 @@ def update_entry():
                        response_review=?,
                        query_review=?,
                        urls_review=?,
-                       tags=?,
                        last_updated_by=?,
                        last_updated_at=?
                  WHERE id=?
@@ -618,7 +729,6 @@ def update_entry():
                 new['response'],
                 new['query'],
                 new['urls'],
-                new['tags'],
                 reviewer,
                 ts,
                 log_id
@@ -652,13 +762,13 @@ def get_metrics_endpoint():
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
     view_by = request.args.get('view_by', 'daily')
+    tool = request.args.get('tool', 'All')
+    model = request.args.get('model', 'All')
     independent = request.args.get('independent', 'All')
     response_reviews = request.args.getlist('response_review')
     query_reviews = request.args.getlist('query_review')
     urls_reviews = request.args.getlist('urls_review')
-    tags = request.args.getlist('tags')
     review_status = request.args.get('review_status', 'All')
-    has_tags = request.args.get('has_tags', 'All')
 
     with sqlite3.connect(DB_FILE) as conn:
         conn.row_factory = sqlite3.Row
@@ -667,6 +777,12 @@ def get_metrics_endpoint():
         params = [f"{start_date} 00:00:00,000", f"{end_date} 23:59:59,999"]
 
         # apply all filters...
+        if tool != 'All':
+            sql += " AND tool=?",
+            params.append(tool)
+        if model != "All":
+            sql += " AND model=?"
+            params.append(model)
         if independent != "All":
             sql += " AND is_independent_question=?"
             params.append(independent)
@@ -684,8 +800,7 @@ def get_metrics_endpoint():
                 "is_independent_question<>''",
                 "response_review<>''",
                 "query_review<>''",
-                "urls_review<>''",
-                "tags<>''",
+                "urls_review<>''"
                 "last_updated_at IS NOT NULL"
             ]) + ")"
         elif review_status == "Not Reviewed":
@@ -693,24 +808,10 @@ def get_metrics_endpoint():
                 "is_independent_question='' ",
                 "response_review='' ",
                 "query_review='' ",
-                "urls_review='' ",
-                "tags='' ",
+                "urls_review='' "
                 "last_updated_at IS NULL"
             ]) + ")"
-        if tags:
-            sql += " AND ("
-            for idx, tag in enumerate(tags):
-                sql += "(tags LIKE ? OR ai_generated_tags LIKE ?)"
-                params.extend([f'%{tag}%', f'%{tag}%'])
-                if idx < len(tags) - 1:
-                    sql += " OR "
-            sql += ")"
-        # has_tags filter
-        if has_tags == "Has":
-            sql += " AND (tags<>'' OR ai_generated_tags<>'')"
-        elif has_tags == "None":
-            sql += " AND tags='' AND ai_generated_tags=''"
-
+        
         sql += " ORDER BY timestamp DESC"
         c.execute(sql, params)
         rows = [dict(r) for r in c.fetchall()]
@@ -775,6 +876,16 @@ def get_metrics_endpoint():
 
     return jsonify({'metrics_summary': metrics_summary})
 
+@app.route('/update_table', methods=['POST'])
+def update_table():
+    # Read the latest changes or new log files 
+    latest_logs = read_logs_from_files()
+    # insert these into the database 
+    with sqlite3.connect(DB_FILE) as conn:
+        for log in latest_logs:
+            insert_log(conn, log)
+    
+    return jsonify({"status": "ok"})
 
 @app.route('/download_all', methods=['GET'])
 def download_all():
@@ -782,13 +893,13 @@ def download_all():
     file_type        = request.args.get('file_type', 'csv').lower()
     start_date       = request.args.get('start_date')
     end_date         = request.args.get('end_date')
+    tool = request.args.get('tool', 'All')
+    model = request.args.get('model', 'All')
     independent      = request.args.get('independent', 'All')
     response_reviews = request.args.getlist('response_review')
     query_reviews    = request.args.getlist('query_review')
     urls_reviews     = request.args.getlist('urls_review')
-    selected_tags    = request.args.getlist('tags')
     review_status    = request.args.get('review_status', 'All')
-    has_tags         = request.args.get('has_tags', 'All')
 
     # --- Build & run query ---
     with sqlite3.connect(DB_FILE) as conn:
@@ -796,7 +907,13 @@ def download_all():
         c = conn.cursor()
         sql = "SELECT * FROM logs WHERE timestamp BETWEEN ? AND ?"
         params = [f"{start_date} 00:00:00,000", f"{end_date} 23:59:59,999"]
-
+        
+        if tool != 'All':
+            sql += " AND tool=?",
+            params.append(tool)
+        if model != "All":
+            sql += " AND model=?"
+            params.append(model)
         if independent != "All":
             sql += " AND is_independent_question=?"
             params.append(independent)
@@ -817,7 +934,6 @@ def download_all():
                 "response_review<>''",
                 "query_review<>''",
                 "urls_review<>''",
-                "tags<>''",
                 "last_updated_at IS NOT NULL"
             ]) + ")"
         elif review_status == "Not Reviewed":
@@ -826,22 +942,8 @@ def download_all():
                 "response_review='' ",
                 "query_review='' ",
                 "urls_review='' ",
-                "tags='' ",
                 "last_updated_at IS NULL"
             ]) + ")"
-
-        # Has Tags filter
-        if has_tags == "Has Tags":
-            sql += " AND (tags<>'' OR ai_generated_tags<>'')"
-        elif has_tags == "No Tags":
-            sql += " AND tags='' AND ai_generated_tags=''"
-
-        # Specific tag values
-        if selected_tags:
-            sql += " AND (" + " OR ".join("(tags LIKE ? OR ai_generated_tags LIKE ?)"
-                                           for _ in selected_tags) + ")"
-            for t in selected_tags:
-                params.extend([f"%{t}%", f"%{t}%"])
 
         sql += " ORDER BY timestamp DESC"
         c.execute(sql, params)
@@ -856,9 +958,9 @@ def download_all():
             buf = StringIO()
             writer = csv.writer(buf)
             writer.writerow([
-                'Timestamp','Query','Response',
+                'Timestamp','Query','Response', 'Tool', 'Model', 'Tester',
                 'Independent?','Response Review','Query Review','URLs Review',
-                'Tags','AI Generated Tags','Last Updated By','Last Updated At'
+                'Last Updated By','Last Updated At'
             ])
             yield buf.getvalue()
             for log in rows:
@@ -867,12 +969,13 @@ def download_all():
                     log['timestamp'],
                     log['query'],
                     log['response'],
+                    log['tool'],
+                    log['model'],
+                    log['tester'],
                     log['is_independent_question'],
                     log['response_review'],
                     log['query_review'],
                     log['urls_review'],
-                    log['tags'],
-                    log.get('ai_generated_tags',''),
                     log.get('last_updated_by',''),
                     log.get('last_updated_at',''),
                 ])
@@ -890,9 +993,9 @@ def download_all():
         df = pd.DataFrame(rows)
         # ensure columns order
         df = df[[
-            'timestamp','query','response',
+            'timestamp','query','response', 'tool', 'model', 'tester',
             'is_independent_question','response_review','query_review','urls_review',
-            'tags','ai_generated_tags','last_updated_by','last_updated_at'
+            'last_updated_by','last_updated_at'
         ]]
         with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
             df.to_excel(writer, index=False, sheet_name='Logs')
@@ -909,12 +1012,11 @@ def download_all():
 
 @app.route('/login')
 def login():
-    redirect_uri = 'https://access-ai.ccs.uky.edu:2222/authorize'
+    redirect_uri = os.getenv('REDIRECT_URI')
     nonce = os.urandom(16).hex()
     session['nonce'] = nonce
-    idp_hint = 'https://access-ci.org/idp'
     app.logger.info(f"Redirect URI: {redirect_uri}")
-    return oauth.cilogon.authorize_redirect(redirect_uri, nonce=nonce, idphint=idp_hint)
+    return oauth.cilogon.authorize_redirect(redirect_uri, nonce=nonce)
 
 @app.route('/authorize')
 def authorize():
@@ -926,8 +1028,8 @@ def authorize():
         user['eppn'] = user_info.get('ePPN') or user_info.get('sub')
         session['user'] = user
 
-        # if not in either list, kick them out
-        if not (is_write_user(user['eppn']) or is_read_only_user(user['eppn'])):
+        # if not in write list, kick them out
+        if not (is_write_user(user['eppn'])) and not (is_read_only_user(user['eppn'])):
             ipaddr = request.headers.get('X-Forwarded-For', request.remote_addr)
             unauth_logger.info(f"Unauthorized user {user['eppn']} from {ipaddr}")
             flash('You are not authorized.', 'danger')
@@ -958,4 +1060,4 @@ def logout():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=2220)
+    app.run(debug=True, host='gh3-internal.ccs.uky.edu', port=7863)
