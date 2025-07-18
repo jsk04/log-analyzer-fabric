@@ -20,6 +20,7 @@ from authlib.integrations.flask_client import OAuth
 from markupsafe import Markup, escape
 import plotly.graph_objs as go
 import plotly.io as pio
+import plotly.utils
 import plotly.express as px
 import bleach
 from io import StringIO, BytesIO
@@ -250,22 +251,6 @@ def insert_log(conn, log):
     else:
         app.logger.info(f"Log already exists for timestamp: {log['timestamp']}")
 
-# # --- Graph generation ---
-# def generate_graph(metrics):
-#     dates = list(metrics.keys())
-#     vals = list(metrics.values())
-#     fig = go.Figure(data=go.Scatter(x=dates, y=vals, mode='lines+markers', name='Queries'))
-#     fig.update_layout(
-#         title='Number of Queries',
-#         xaxis_title='Date',
-#         yaxis_title='Count',
-#         template='plotly_white',
-#         height=400,
-#         margin=dict(l=40, r=40, t=40, b=40)
-#     )
-#     return pio.to_html(fig, full_html=False)
-    
-
 # ------------------------------------- Function to build models graph --------------------------------
 def generate_graph(logs):
     metrics = calculate_model_metrics(logs)
@@ -393,7 +378,8 @@ def generate_graph(logs):
             font=dict(size=16),
             align="center"
         )
-
+    
+    # return fig
     return pio.to_html(fig, full_html=False, include_plotlyjs='cdn')
 
 def get_week_range(year, week_num):
@@ -664,7 +650,9 @@ def home_route():
         param_str += f"&query_review={param_escape(qr)}"
     for ur in selected_urls_review:
         param_str += f"&urls_review={param_escape(ur)}"
-
+    
+    # fig = generate_graph(all_entries)
+    # graph_html = pio.to_html(fig,full_html=False,include_plotlyjs='cdn')
     return render_template(
         'index.html',
         logs=paginated_logs,
@@ -915,6 +903,72 @@ def get_metrics_endpoint():
 
     return jsonify({'metrics_summary': metrics_summary})
 
+# @app.route('/update_graph', methods=['GET'])
+# def update_graph():
+#     # Get the latest logs
+#     start_date = request.args.get('start_date')
+#     end_date = request.args.get('end_date')
+#     view_by = request.args.get('view_by', 'daily')
+#     tool = request.args.get('tool', 'All')
+#     model = request.args.get('model', 'All')
+#     independent = request.args.get('independent', 'All')
+#     response_reviews = request.args.getlist('response_review')
+#     query_reviews = request.args.getlist('query_review')
+#     urls_reviews = request.args.getlist('urls_review')
+#     review_status = request.args.get('review_status', 'All')
+
+#     with sqlite3.connect(DB_FILE) as conn:
+#         conn.row_factory = sqlite3.Row
+#         c = conn.cursor()
+#         sql = "SELECT * FROM logs WHERE timestamp BETWEEN ? AND ?"
+#         params = [f"{start_date} 00:00:00,000", f"{end_date} 23:59:59,999"]
+
+#         # apply all filters...
+#         if tool != 'All':
+#             sql += " AND tool=?",
+#             params.append(tool)
+#         if model != "All":
+#             sql += " AND model=?"
+#             params.append(model)
+#         if independent != "All":
+#             sql += " AND is_independent_question=?"
+#             params.append(independent)
+#         if response_reviews:
+#             sql += " AND response_review IN ({})".format(','.join('?' for _ in response_reviews))
+#             params.extend(response_reviews)
+#         if query_reviews:
+#             sql += " AND query_review IN ({})".format(','.join('?' for _ in query_reviews))
+#             params.extend(query_reviews)
+#         if urls_reviews:
+#             sql += " AND urls_review IN ({})".format(','.join('?' for _ in urls_reviews))
+#             params.extend(urls_reviews)
+#         if review_status == "Reviewed":
+#             sql += " AND (" + " OR ".join([
+#                 "is_independent_question<>''",
+#                 "response_review<>''",
+#                 "query_review<>''",
+#                 "urls_review<>''"
+#                 "last_updated_at IS NOT NULL"
+#             ]) + ")"
+#         elif review_status == "Not Reviewed":
+#             sql += " AND (" + " AND ".join([
+#                 "is_independent_question='' ",
+#                 "response_review='' ",
+#                 "query_review='' ",
+#                 "urls_review='' "
+#                 "last_updated_at IS NULL"
+#             ]) + ")"
+        
+#         sql += " ORDER BY timestamp DESC"
+#         c.execute(sql, params)
+#         rows = [dict(r) for r in c.fetchall()]
+    
+#     # fig = generate_graph(rows)
+#     # fig_json = fig.to_plotly_json()
+#     # Updated and return the graph 
+#     # return Response(fig, cls=plotly.utils.PlotlyJSONEncoder, mimetype='application/json')
+#     return generate_graph(rows)
+
 @app.route('/update_table', methods=['POST'])
 def update_table():
     # Read the latest changes or new log files 
@@ -1102,5 +1156,4 @@ def download_all():
 
 if __name__ == '__main__':
     app.run(debug=True, host='gh3-internal.ccs.uky.edu', port=7865)
-
 

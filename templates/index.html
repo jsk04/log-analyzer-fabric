@@ -409,6 +409,42 @@
         review_status:   $('#review_status_filter').val() || "All"
       };
     }
+    
+//     function updateGraph() {
+//   const graphContainer = document.getElementById("graph-container");
+
+//   // 1. Get current filters
+//   const filters = getCurrentFilters();  // You already have this function
+
+//   // 2. Convert filters to a query string
+//   const queryParams = new URLSearchParams(filters).toString();
+
+//   // 3. Fetch updated HTML from the backend with filters
+//   fetch(`/update_graph?${queryParams}`)
+//     .then(response => response.text())
+//     .then(html => {
+//       // 4. Replace graph container content
+//       graphContainer.innerHTML = html;
+
+//       // 5. Execute any <script> tags in the returned HTML (for Plotly)
+//       const scriptTags = graphContainer.querySelectorAll("script");
+//       scriptTags.forEach(oldScript => {
+//         const newScript = document.createElement("script");
+//         if (oldScript.src) {
+//           newScript.src = oldScript.src;
+//         } else {
+//           newScript.textContent = oldScript.textContent;
+//         }
+//         document.body.appendChild(newScript);
+//         // Clean up to avoid script accumulation
+//         document.body.removeChild(newScript);
+//       });
+//     })
+//     .catch(error => {
+//       console.error("Error updating graph:", error);
+//     });
+// }
+
 
     function updateMetrics(){
       $.ajax({
@@ -489,6 +525,7 @@
             $(`tr[data-log-id='${logId}'] .last-updated`)
               .text(`${data.last_updated_by} @ ${data.last_updated_at}`);
             updateMetrics();
+	          // updateGraph();
           }
         }
       });
