@@ -65,7 +65,37 @@
       word-wrap: break-word;
       white-space: normal;
     }
-    .response-column { white-space: pre-wrap; }
+    .response-column h1,
+    .response-column h2,
+    .response-column h3,
+    .response-column h4,
+    .response-column h5,
+    .response-column h6 {
+      font-size: 1rem;
+      margin: 0.5em 0;
+    }
+
+    .response-column p {
+      margin: 0.5em 0; /* reduce space between paragraphs */
+    }
+
+    .response-column pre,
+    .response-column code {
+      font-family: monospace;
+      background-color: #f4f4f4;
+      padding: 0.5em;
+      border-radius: 4px;
+      display: block;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+
+   .response-column {
+     font-family: sans-serif;
+     line-height: 1.4;
+     white-space: normal;
+    }
+   
     .read-only {
       opacity: 0.5;
       cursor: not-allowed;
@@ -239,7 +269,7 @@
         <th>Last Updated</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="logs-table-body">
       {% for log in logs %}
       <tr data-log-id="{{ log.id }}">
         <td>{{ (page-1)*50 + loop.index }}</td>
@@ -341,7 +371,7 @@
   </table>
 
   <!-- Bottom pagination -->
-  <div class="pagination">
+  <div class="pagination" id="pagination-controls">
     {% if prev_page %}
       <a href="?page=1{{ param_str }}">First</a>
       <a href="?page={{ prev_page }}{{ param_str }}">Previous</a>
@@ -379,6 +409,42 @@
         review_status:   $('#review_status_filter').val() || "All"
       };
     }
+    
+//     function updateGraph() {
+//   const graphContainer = document.getElementById("graph-container");
+
+//   // 1. Get current filters
+//   const filters = getCurrentFilters();  // You already have this function
+
+//   // 2. Convert filters to a query string
+//   const queryParams = new URLSearchParams(filters).toString();
+
+//   // 3. Fetch updated HTML from the backend with filters
+//   fetch(`/update_graph?${queryParams}`)
+//     .then(response => response.text())
+//     .then(html => {
+//       // 4. Replace graph container content
+//       graphContainer.innerHTML = html;
+
+//       // 5. Execute any <script> tags in the returned HTML (for Plotly)
+//       const scriptTags = graphContainer.querySelectorAll("script");
+//       scriptTags.forEach(oldScript => {
+//         const newScript = document.createElement("script");
+//         if (oldScript.src) {
+//           newScript.src = oldScript.src;
+//         } else {
+//           newScript.textContent = oldScript.textContent;
+//         }
+//         document.body.appendChild(newScript);
+//         // Clean up to avoid script accumulation
+//         document.body.removeChild(newScript);
+//       });
+//     })
+//     .catch(error => {
+//       console.error("Error updating graph:", error);
+//     });
+// }
+
 
     function updateMetrics(){
       $.ajax({
@@ -459,14 +525,15 @@
             $(`tr[data-log-id='${logId}'] .last-updated`)
               .text(`${data.last_updated_by} @ ${data.last_updated_at}`);
             updateMetrics();
+	          // updateGraph();
           }
         }
       });
     }
-
+    
     $(document).ready(function(){
       $('#tool_filter, #model_filter, #independent_filter, #response_review_filter, #query_review_filter, #urls_review_filter, #review_status_filter')
-        .select2({ placeholder: "Select", width: 'style' });
+        .select2({ placeholder: "Select", width: 'style' })
 
       $('#reset-filters').click(function(){
         $('#tool_filter').val("All").trigger('change');
