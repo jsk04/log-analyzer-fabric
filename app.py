@@ -709,7 +709,7 @@ def update_entry():
             if not new['query']:    new['query']    = 'Good'
             if not new['urls']:     new['urls']     = 'Good'
 
-        reviewer = session['user']['eppn']
+        reviewer = session.get('user_id', 'anonymous')
         ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         # 3) Update the DB
@@ -742,6 +742,8 @@ def update_entry():
         # 5) Log to both console and file
         print(msg)                   # console
         app.logger.info(msg)         # app.log
+
+        log['last_rated_by'] = reviewer
 
         return jsonify({
             'status': 'success',
