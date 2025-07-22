@@ -238,6 +238,7 @@
         <th>User Query Review</th>
         <th>URLs Review</th>
         <th>Last Updated</th>
+	<th>Last Rated By</th>
       </tr>
     </thead>
     <tbody>
@@ -336,12 +337,12 @@
             </label>
           </div>
         </td>
-	      
+	
 	<td class="last-updated">
-  		{{ log.last_updated_by or '—' }} @ {{ log.last_updated_at or '—' }}
+		   {{ log.last_updated_by or '-' }} @ {{ log.last_updated_at or '-' }}
 	</td>
 
-	<td>{{ log.last_rated_by or '—' }}</td>
+	<td>{{ log.last_rated_by or '-' }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -511,4 +512,3 @@
   </script>
 </body>
 </html>
-
