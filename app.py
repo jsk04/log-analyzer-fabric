@@ -903,6 +903,7 @@ def get_metrics_endpoint():
 
     return jsonify({'metrics_summary': metrics_summary})
 
+# ----------------------------------- Endpoint to dynamically update graph --------------------------------------
 # @app.route('/update_graph', methods=['GET'])
 # def update_graph():
 #     # Get the latest logs
@@ -980,128 +981,129 @@ def update_table():
     
     return jsonify({"status": "ok"})
 
-@app.route('/download_all', methods=['GET'])
-def download_all():
-    # --- Gather params ---
-    file_type        = request.args.get('file_type', 'csv').lower()
-    start_date       = request.args.get('start_date')
-    end_date         = request.args.get('end_date')
-    tool = request.args.get('tool', 'All')
-    model = request.args.get('model', 'All')
-    independent      = request.args.get('independent', 'All')
-    response_reviews = request.args.getlist('response_review')
-    query_reviews    = request.args.getlist('query_review')
-    urls_reviews     = request.args.getlist('urls_review')
-    review_status    = request.args.get('review_status', 'All')
+# ----------------------------------- Download endpoint that is not necessary for our use case --------------------------------------
+# @app.route('/download_all', methods=['GET'])
+# def download_all():
+#     # --- Gather params ---
+#     file_type        = request.args.get('file_type', 'csv').lower()
+#     start_date       = request.args.get('start_date')
+#     end_date         = request.args.get('end_date')
+#     tool = request.args.get('tool', 'All')
+#     model = request.args.get('model', 'All')
+#     independent      = request.args.get('independent', 'All')
+#     response_reviews = request.args.getlist('response_review')
+#     query_reviews    = request.args.getlist('query_review')
+#     urls_reviews     = request.args.getlist('urls_review')
+#     review_status    = request.args.get('review_status', 'All')
 
-    # --- Build & run query ---
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        sql = "SELECT * FROM logs WHERE timestamp BETWEEN ? AND ?"
-        params = [f"{start_date} 00:00:00,000", f"{end_date} 23:59:59,999"]
+#     # --- Build & run query ---
+#     with sqlite3.connect(DB_FILE) as conn:
+#         conn.row_factory = sqlite3.Row
+#         c = conn.cursor()
+#         sql = "SELECT * FROM logs WHERE timestamp BETWEEN ? AND ?"
+#         params = [f"{start_date} 00:00:00,000", f"{end_date} 23:59:59,999"]
         
-        if tool != 'All':
-            sql += " AND tool=?",
-            params.append(tool)
-        if model != "All":
-            sql += " AND model=?"
-            params.append(model)
-        if independent != "All":
-            sql += " AND is_independent_question=?"
-            params.append(independent)
-        if response_reviews:
-            sql += " AND response_review IN ({})".format(",".join("?"*len(response_reviews)))
-            params.extend(response_reviews)
-        if query_reviews:
-            sql += " AND query_review IN ({})".format(",".join("?"*len(query_reviews)))
-            params.extend(query_reviews)
-        if urls_reviews:
-            sql += " AND urls_review IN ({})".format(",".join("?"*len(urls_reviews)))
-            params.extend(urls_reviews)
+#         if tool != 'All':
+#             sql += " AND tool=?",
+#             params.append(tool)
+#         if model != "All":
+#             sql += " AND model=?"
+#             params.append(model)
+#         if independent != "All":
+#             sql += " AND is_independent_question=?"
+#             params.append(independent)
+#         if response_reviews:
+#             sql += " AND response_review IN ({})".format(",".join("?"*len(response_reviews)))
+#             params.extend(response_reviews)
+#         if query_reviews:
+#             sql += " AND query_review IN ({})".format(",".join("?"*len(query_reviews)))
+#             params.extend(query_reviews)
+#         if urls_reviews:
+#             sql += " AND urls_review IN ({})".format(",".join("?"*len(urls_reviews)))
+#             params.extend(urls_reviews)
 
-        # Reviewed / Not Reviewed
-        if review_status == "Reviewed":
-            sql += " AND (" + " OR ".join([
-                "is_independent_question<>''",
-                "response_review<>''",
-                "query_review<>''",
-                "urls_review<>''",
-                "last_updated_at IS NOT NULL"
-            ]) + ")"
-        elif review_status == "Not Reviewed":
-            sql += " AND (" + " AND ".join([
-                "is_independent_question='' ",
-                "response_review='' ",
-                "query_review='' ",
-                "urls_review='' ",
-                "last_updated_at IS NULL"
-            ]) + ")"
+#         # Reviewed / Not Reviewed
+#         if review_status == "Reviewed":
+#             sql += " AND (" + " OR ".join([
+#                 "is_independent_question<>''",
+#                 "response_review<>''",
+#                 "query_review<>''",
+#                 "urls_review<>''",
+#                 "last_updated_at IS NOT NULL"
+#             ]) + ")"
+#         elif review_status == "Not Reviewed":
+#             sql += " AND (" + " AND ".join([
+#                 "is_independent_question='' ",
+#                 "response_review='' ",
+#                 "query_review='' ",
+#                 "urls_review='' ",
+#                 "last_updated_at IS NULL"
+#             ]) + ")"
 
-        sql += " ORDER BY timestamp DESC"
-        c.execute(sql, params)
-        rows = [dict(r) for r in c.fetchall()]
+#         sql += " ORDER BY timestamp DESC"
+#         c.execute(sql, params)
+#         rows = [dict(r) for r in c.fetchall()]
 
-    # --- Export ---
-    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+#     # --- Export ---
+#     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # CSV
-    if file_type == 'csv':
-        def generate_csv():
-            buf = StringIO()
-            writer = csv.writer(buf)
-            writer.writerow([
-                'Timestamp','Query','Response', 'Tool', 'Model', 'Tester',
-                'Independent?','Response Review','Query Review','URLs Review',
-                'Last Updated By','Last Updated At'
-            ])
-            yield buf.getvalue()
-            for log in rows:
-                buf.seek(0); buf.truncate(0)
-                writer.writerow([
-                    log['timestamp'],
-                    log['query'],
-                    log['response'],
-                    log['tool'],
-                    log['model'],
-                    log['tester'],
-                    log['is_independent_question'],
-                    log['response_review'],
-                    log['query_review'],
-                    log['urls_review'],
-                    log.get('last_updated_by',''),
-                    log.get('last_updated_at',''),
-                ])
-                yield buf.getvalue()
+#     # CSV
+#     if file_type == 'csv':
+#         def generate_csv():
+#             buf = StringIO()
+#             writer = csv.writer(buf)
+#             writer.writerow([
+#                 'Timestamp','Query','Response', 'Tool', 'Model', 'Tester',
+#                 'Independent?','Response Review','Query Review','URLs Review',
+#                 'Last Updated By','Last Updated At'
+#             ])
+#             yield buf.getvalue()
+#             for log in rows:
+#                 buf.seek(0); buf.truncate(0)
+#                 writer.writerow([
+#                     log['timestamp'],
+#                     log['query'],
+#                     log['response'],
+#                     log['tool'],
+#                     log['model'],
+#                     log['tester'],
+#                     log['is_independent_question'],
+#                     log['response_review'],
+#                     log['query_review'],
+#                     log['urls_review'],
+#                     log.get('last_updated_by',''),
+#                     log.get('last_updated_at',''),
+#                 ])
+#                 yield buf.getvalue()
 
-        return Response(
-            generate_csv(),
-            mimetype='text/csv',
-            headers={'Content-Disposition': f'attachment; filename=logs_{timestamp_str}.csv'}
-        )
+#         return Response(
+#             generate_csv(),
+#             mimetype='text/csv',
+#             headers={'Content-Disposition': f'attachment; filename=logs_{timestamp_str}.csv'}
+#         )
 
-    # XLS / XLSX
-    elif file_type in ('xls', 'xlsx'):
-        buf = BytesIO()
-        df = pd.DataFrame(rows)
-        # ensure columns order
-        df = df[[
-            'timestamp','query','response', 'tool', 'model', 'tester',
-            'is_independent_question','response_review','query_review','urls_review',
-            'last_updated_by','last_updated_at'
-        ]]
-        with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='Logs')
-        buf.seek(0)
-        return send_file(
-            buf,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            as_attachment=True,
-            download_name=f'logs_{timestamp_str}.xlsx'
-        )
+#     # XLS / XLSX
+#     elif file_type in ('xls', 'xlsx'):
+#         buf = BytesIO()
+#         df = pd.DataFrame(rows)
+#         # ensure columns order
+#         df = df[[
+#             'timestamp','query','response', 'tool', 'model', 'tester',
+#             'is_independent_question','response_review','query_review','urls_review',
+#             'last_updated_by','last_updated_at'
+#         ]]
+#         with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+#             df.to_excel(writer, index=False, sheet_name='Logs')
+#         buf.seek(0)
+#         return send_file(
+#             buf,
+#             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+#             as_attachment=True,
+#             download_name=f'logs_{timestamp_str}.xlsx'
+#         )
 
-    else:
-        return "Invalid file type", 400
+#     else:
+#         return "Invalid file type", 400
 
 # ----------------------------------- Functions corresponding to Existing Authorization system --------------------------------------
 
