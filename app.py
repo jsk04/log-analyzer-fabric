@@ -35,8 +35,8 @@ DB_FILE = os.getenv('DATABASE_PATH')
 AUTHORIZED_USERS_FILE = os.getenv('AUTHORIZED_USERS_FILE')
 READONLY_USERS_FILE = os.getenv('READONLY_USERS_FILE')
 
-UNAUTHORIZED_LOG_PATH = '/home/anra240/0709test/log-analyzer-fabric/logs/unauthorized_access.log'
-USER_LOGIN_LOG_PATH = '/home/anra240/0709test/log-analyzer-fabric/logs/user_logins.log'
+UNAUTHORIZED_LOG_PATH = '/home/jku230/log-analyzer-fabric/logs/unauthorized_access.log'
+USER_LOGIN_LOG_PATH = '/home/jku230/log-analyzer-fabric/logs/user_logins.log'
 
 FILES_OFFSETS_PATH = '/home/griff_uksr_fabric/Integration/file_offsets.json'
 PER_PAGE = 50
