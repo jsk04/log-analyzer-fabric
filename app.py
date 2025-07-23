@@ -367,7 +367,11 @@ def generate_graph(logs):
         xaxis_title="Model",
         yaxis_title="Number of Queries",
         title="Accuracy of Responses by Model",
-        template="plotly_white"
+        template="plotly_white",
+        yaxis=dict(
+        tickmode='linear',
+        dtick=1  # Force tick marks at every 1 unit
+        )
     )
 
     if df.empty:
