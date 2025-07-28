@@ -7,15 +7,15 @@ auth_bp = Blueprint('auth', __name__)
 
 # Dummy user list (replace later with DB or secure store)
 users = {
-    'alex': 'raketich',
-    'joshna': 'kurra',
-    'mami': 'hayashida',
-    'james': 'griffioen',
-    'zongming': 'fei',
-    'charles': 'carpenter',
-    'hussamuddin': 'nasir',
-    'pinyi': 'shi',
-    'yongwook': 'song'
+    'Alex': 'Raketich',
+    'Joshna': 'Kurra',
+    'Mami': 'Hayashida',
+    'James': 'Griffioen',
+    'Zongming': 'Fei',
+    'Charles': 'Carpenter',
+    'Hussamuddin': 'Nasir',
+    'Pinyi': 'Shi',
+    'Yongwook': 'Song'
 }
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
