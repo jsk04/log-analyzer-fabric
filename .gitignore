@@ -17,3 +17,6 @@ logs/
 
 # Optionally, ignore all .log files and directories recursively
 **/logs/
+
+# Ignore auth.py
+auth.py
