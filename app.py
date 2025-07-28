@@ -16,7 +16,6 @@ from flask import (
     Flask, request, render_template, session,
     redirect, url_for, jsonify, flash, send_file, Response
 )
-from authlib.integrations.flask_client import OAuth
 from markupsafe import Markup, escape
 import plotly.graph_objs as go
 import plotly.io as pio
@@ -55,16 +54,6 @@ app.secret_key = FLASK_SECRET_KEY
 from auth import auth_bp, login_required
 app.register_blueprint(auth_bp)
 
-
-# --- OAuth with CILogon ---
-oauth = OAuth(app)
-oauth.register(
-    name='cilogon',
-    client_id=os.getenv('CILOGON_CLIENT_ID'),
-    client_secret=os.getenv('CILOGON_CLIENT_SECRET'),
-    server_metadata_url='https://cilogon.org/.well-known/openid-configuration',
-    client_kwargs={'scope': 'openid profile email org.cilogon.userinfo'}
-)
 
 # Ensure log directory exists
 os.makedirs('logs', exist_ok=True)
@@ -1013,44 +1002,6 @@ def download_all():
     else:
         return "Invalid file type", 400
 
-@app.route('/login')
-def login():
-    redirect_uri = os.getenv('REDIRECT_URI')
-    nonce = os.urandom(16).hex()
-    session['nonce'] = nonce
-    app.logger.info(f"Redirect URI: {redirect_uri}")
-    return oauth.cilogon.authorize_redirect(redirect_uri, nonce=nonce)
-
-@app.route('/authorize')
-def authorize():
-    try:
-        token = oauth.cilogon.authorize_access_token()
-        nonce = session.pop('nonce', None)
-        user = oauth.cilogon.parse_id_token(token, nonce=nonce)
-        user_info = oauth.cilogon.userinfo()
-        user['eppn'] = user_info.get('ePPN') or user_info.get('sub')
-        session['user'] = user
-
-        # if not in write list, kick them out
-        if not (is_write_user(user['eppn'])) and not (is_read_only_user(user['eppn'])):
-            ipaddr = request.headers.get('X-Forwarded-For', request.remote_addr)
-            unauth_logger.info(f"Unauthorized user {user['eppn']} from {ipaddr}")
-            flash('You are not authorized.', 'danger')
-            session.clear()
-            return redirect(url_for('unauthorized'))
-
-        # otherwise set read_only flag and continue
-        session['read_only'] = is_read_only_user(user['eppn'])
-        user_login_logger.info(f"User {user['eppn']} logged in. Read-only: {session['read_only']}")
-        flash('Authorization successful!', 'success')
-
-    except Exception as e:
-        # if anything went wrong in the try block, log & bounce back home
-        flash(f'Authorization failed: {e}', 'danger')
-        return redirect('/')   # <-- either redirect('/') or url_for('home_route')
-
-    # on success, send them to the real home page
-    return redirect('/')
 
 @app.route('/unauthorized')
 def unauthorized():
