@@ -16,11 +16,9 @@ from flask import (
     Flask, request, render_template, session,
     redirect, url_for, jsonify, flash, send_file, Response
 )
-from authlib.integrations.flask_client import OAuth
 from markupsafe import Markup, escape
 import plotly.graph_objs as go
 import plotly.io as pio
-import plotly.utils
 import plotly.express as px
 import bleach
 from io import StringIO, BytesIO
@@ -36,6 +34,13 @@ DB_FILE = os.getenv('DATABASE_PATH')
 
 AUTHORIZED_USERS_FILE = os.getenv('AUTHORIZED_USERS_FILE')
 READONLY_USERS_FILE = os.getenv('READONLY_USERS_FILE')
+
+
+UNAUTHORIZED_LOG_PATH = '/home/jku230/log-analyzer-fabric/logs/unauthorized_access.log'
+USER_LOGIN_LOG_PATH = '/home/jku230/log-analyzer-fabric/logs/user_logins.log'
+
+FILES_OFFSETS_PATH = '/home/griff_uksr_fabric/Integration/file_offsets.json'
+PER_PAGE = 50
 
 UNAUTHORIZED_LOG_PATH = 'logs/unauthorized_access.log'
 USER_LOGIN_LOG_PATH = 'logs/user_logins.log'
@@ -53,15 +58,10 @@ ALLOWED_ATTRIBUTES = {
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
 
-# --- OAuth with CILogon ---
-oauth = OAuth(app)
-oauth.register(
-    name='cilogon',
-    client_id=os.getenv('CILOGON_CLIENT_ID'),
-    client_secret=os.getenv('CILOGON_CLIENT_SECRET'),
-    server_metadata_url='https://cilogon.org/.well-known/openid-configuration',
-    client_kwargs={'scope': 'openid profile email org.cilogon.userinfo'}
-)
+
+from auth import auth_bp, login_required
+app.register_blueprint(auth_bp)
+
 
 # Ensure log directory exists
 os.makedirs('logs', exist_ok=True)
@@ -193,7 +193,6 @@ def read_logs_from_files():
 
 # --- Log parsing ---
 def parse_log(content, start_date, end_date):
-
     pattern = re.compile(
             r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - QUERY: (.*?)\nRESPONSE:\s+(.*?)(?:\n+|\s+)MODEL:\s+(.*?)\nTOOL: (.*?)\nTESTER: (.*?)(?=\n\d{4}-\d{2}-\d{2}|\Z)',
                     re.DOTALL | re.MULTILINE
@@ -201,6 +200,7 @@ def parse_log(content, start_date, end_date):
     matches = pattern.finditer(content)
     entries = []
     for match in matches:
+        print("Parsing match...")
         ts_str = match.group(1)
         try:
             ts = datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S,%f')
@@ -491,11 +491,12 @@ def get_paginated_logs(logs, page, per_page):
 
 # --- Routes ---
 @app.route('/', methods=['GET'])
+@login_required
 def home_route():
     # if 'user' not in session:
     #     flash('You must be logged in.', 'danger')
     #     return redirect(url_for('login'))
-
+    
     today = datetime.now().strftime('%Y-%m-%d')
     start_date = request.args.get('start_date', today)
     end_date = request.args.get('end_date', today)
@@ -519,7 +520,7 @@ def home_route():
         sql = "SELECT * FROM logs WHERE timestamp BETWEEN ? AND ?"
         params = [f"{start_date} 00:00:00,000", f"{end_date} 23:59:59,999"]
 
-        if selected_tool != 'All':
+        if selected_tool != 'All
             sql += " AND tool=?"
             params.append(selected_tool)
         if selected_model != "All":
@@ -654,9 +655,7 @@ def home_route():
         param_str += f"&query_review={param_escape(qr)}"
     for ur in selected_urls_review:
         param_str += f"&urls_review={param_escape(ur)}"
-    
-    # fig = generate_graph(all_entries)
-    # graph_html = pio.to_html(fig,full_html=False,include_plotlyjs='cdn')
+
     return render_template(
         'index.html',
         logs=paginated_logs,
@@ -678,8 +677,6 @@ def home_route():
 
         review_status_options=["All", "Reviewed", "Not Reviewed"],
         tool_options=["All", "Code Generation", "Q&A"],
-        # Need to fill in model options
-        # model_options_map = {},
         model_options=["All", "codestral",
                      "codellama:latest",
                      "codellama:13b",
@@ -693,8 +690,6 @@ def home_route():
                      "gemma3:1b",
                      "qwen2.5:latest",
                      "mistral-large"],
-        # qa_options=[""],
-        # cg_options=[""],
         is_independent_options=["All", "Yes", "No"],
         response_review_options=["Correct", "Partially", "Incorrect", "I Don't Know"],
         query_review_options=["Good", "Acceptable", "Bad", "I Don't Know"],
@@ -707,6 +702,10 @@ def home_route():
         read_only=session.get('read_only', False)
     )
 
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    return render_template('dashboard.html', user=session['user_id'])
 
 @app.route('/update_entry', methods=['POST'])
 def update_entry():
@@ -748,9 +747,10 @@ def update_entry():
             if not new['query']:    new['query']    = 'Good'
             if not new['urls']:     new['urls']     = 'Good'
 
-        # reviewer = session['user']['eppn']
+        reviewer = session.get('user_id', 'anonymous')
         ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
+        
+        print(f"This is the reviewer: {reviewer}")
         # 3) Update the DB
         with sqlite3.connect(DB_FILE) as conn:
             cur = conn.cursor()
@@ -760,6 +760,7 @@ def update_entry():
                        response_review=?,
                        query_review=?,
                        urls_review=?,
+                       last_updated_by=?,
                        last_updated_at=?
                  WHERE id=?
             """, (
@@ -767,6 +768,7 @@ def update_entry():
                 new['response'],
                 new['query'],
                 new['urls'],
+                reviewer,
                 ts,
                 log_id
             ))
@@ -779,6 +781,8 @@ def update_entry():
         # 5) Log to both console and file
         print(msg)                   # console
         app.logger.info(msg)         # app.log
+
+        # log['last_rated_by'] = reviewer
 
         return jsonify({
             'status': 'success',
@@ -912,7 +916,7 @@ def get_metrics_endpoint():
 
     return jsonify({'metrics_summary': metrics_summary})
 
-# ----------------------------------- Endpoint to dynamically update graph --------------------------------------
+  # ----------------------------------- Endpoint to dynamically update graph --------------------------------------
 # @app.route('/update_graph', methods=['GET'])
 # def update_graph():
 #     # Get the latest logs
@@ -1164,7 +1168,5 @@ def update_table():
 #     session.clear()
 #     return redirect(url_for('home'))
 
-
 if __name__ == '__main__':
-    app.run(debug=True, host='gh3-internal.ccs.uky.edu', port=7865)
-
+    app.run(debug=True, host='gh3-internal.ccs.uky.edu', port=7863)

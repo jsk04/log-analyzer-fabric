@@ -267,7 +267,8 @@
         <th>AI Response Review</th>
         <th>User Query Review</th>
         <th>URLs Review</th>
-        <th>Last Updated</th>
+        <th>Last Updated At</th>
+	      <th>Last Updated By</th>
       </tr>
     </thead>
     <tbody id="logs-table-body">
@@ -366,6 +367,10 @@
             </label>
           </div>
         </td>
+	<td id="last-updated-at" class="last-updated">
+		   {{ log.last_updated_at or '-' }}
+	</td>
+	<td id="last-updated-by">{{ log.last_updated_by or '-' }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -523,10 +528,11 @@
         }),
         success: function(data){
           if (data.status === 'success') {
-            $(`tr[data-log-id='${logId}'] .last-updated`)
-              .text(`${data.last_updated_by} @ ${data.last_updated_at}`);
+            $(`tr[data-log-id='${logId}'] .last-updated-at`)
+              .text(`${data.last_updated_at}`);
+            $(`tr[data-log-id='${logId}'] .last-updated-by`)
+              .text(`${data.last_updated_by}`);
             updateMetrics();
-	          // updateGraph();
           }
         }
       });
