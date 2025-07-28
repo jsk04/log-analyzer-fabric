@@ -711,7 +711,8 @@ def update_entry():
 
         reviewer = session.get('user_id', 'anonymous')
         ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
+        
+        print(f"This is the reviewer: {reviewer}")
         # 3) Update the DB
         with sqlite3.connect(DB_FILE) as conn:
             cur = conn.cursor()
@@ -743,7 +744,7 @@ def update_entry():
         print(msg)                   # console
         app.logger.info(msg)         # app.log
 
-        log['last_rated_by'] = reviewer
+        # log['last_rated_by'] = reviewer
 
         return jsonify({
             'status': 'success',
