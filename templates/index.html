@@ -298,23 +298,23 @@
         <td>
           <div class="radio-group">
             <label>
-              <input type="radio" name="response_review_{{ log.id }}" value="Correct"
-                {% if log.response_review=='Correct' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              <input type="radio" name="response_review_{{ log.id }}" value="Excellent"
+                {% if log.response_review=='Excellent' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
               Excellent
             </label>
             <label>
-              <input type="radio" name="response_review_{{ log.id }}" value="Partially"
-                {% if log.response_review=='Partially' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              <input type="radio" name="response_review_{{ log.id }}" value="Good"
+                {% if log.response_review=='Good' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
               Good
             </label>
             <label>
-              <input type="radio" name="response_review_{{ log.id }}" value="Incorrect"
-                {% if log.response_review=='Incorrect' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              <input type="radio" name="response_review_{{ log.id }}" value="Satisfactory"
+                {% if log.response_review=='Satisfactory' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
               Satisfactory
             </label>
             <label>
-              <input type="radio" name="response_review_{{ log.id }}" value="I Don't Know"
-                {% if log.response_review=="I Don't Know" %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+              <input type="radio" name="response_review_{{ log.id }}" value="Unsatisfactory"
+                {% if log.response_review=="Unsatisfactory" %}checked{% endif %} {% if read_only %}disabled{% endif %}>
               Unsatisfactory
             </label>
           </div>
@@ -493,7 +493,7 @@
         $(`input[name^="response_review_${logId}"], input[name^="query_review_${logId}"], input[name^="urls_review_${logId}"]`)
           .prop('disabled', false);
         if (!$(`input[name="response_review_${logId}"]:checked`).val())
-          $(`input[name="response_review_${logId}"][value="Correct"]`).prop('checked', true);
+          $(`input[name="response_review_${logId}"][value="Excellent"]`).prop('checked', true);
         if (!$(`input[name="query_review_${logId}"]:checked`).val())
           $(`input[name="query_review_${logId}"][value="Good"]`).prop('checked', true);
         if (!$(`input[name="urls_review_${logId}"]:checked`).val())
@@ -510,7 +510,7 @@
       if (resp || qrev || urev) {
         indep = "Yes";
         $(`input[name="is_independent_${logId}"][value="Yes"]`).prop('checked', true);
-        if (!resp) { resp = "Correct";   $(`input[value="Correct"][name="response_review_${logId}"]`).prop('checked', true); }
+        if (!resp) { resp = "Excellent";   $(`input[value="Excellent"][name="response_review_${logId}"]`).prop('checked', true); }
         if (!qrev) { qrev = "Good";      $(`input[value="Good"][name="query_review_${logId}"]`).prop('checked', true); }
         if (!urev) { urev = "Good";      $(`input[value="Good"][name="urls_review_${logId}"]`).prop('checked', true); }
       }
