@@ -264,20 +264,20 @@ def generate_graph(logs):
     # Take dictionary and turn it into flat data
     flat_metrics = []
     for model, model_metrics in metrics.items():
-        correct = model_metrics.get('Correct', 0)
-        partial = model_metrics.get('Partially Correct', 0)
-        incorrect = model_metrics.get('Incorrect', 0)
-        idk = model_metrics.get("I don't know", 0)
+        excellent = model_metrics.get('Excellent', 0)
+        good = model_metrics.get('Good', 0)
+        satisfactory = model_metrics.get('Satisfactory', 0)
+        unsatisfactory = model_metrics.get("Unsatisfactory", 0)
         not_reviewed = model_metrics.get('Not Reviewed', 0)
 
-        base_sum = correct + partial + incorrect + idk 
+        base_sum = excellent + good + unsatisfactory + satisfactory 
         total_sum = base_sum + not_reviewed
         
         nr_nonzero = False 
-        correct_nonzero = False
-        partial_nonzero = False
-        incorrect_nonzero = False 
-        idk_nonzero = False 
+        excellent_nonzero = False
+        good_nonzero = False
+        satisfactory_nonzero = False 
+        unsatisfactory_nonzero = False 
         # print(f"This is the metrics dictionary for this {model}:\n{model_metrics}")
         for metric, val in model_metrics.items():
             if metric != 'Not Reviewed':
@@ -293,22 +293,22 @@ def generate_graph(logs):
             })
             
             # Keep track of metrics with values of 0
-            if metric == "Correct" and val > 0:
-                correct_nonzero = True
-            if metric == "Partially Correct" and val > 0:
-                partial_nonzero = True
-            if metric == "Incorrect" and val > 0:
-                incorrect_nonzero = True 
-            if metric == "I don't know" and val > 0:
-                idk_nonzero = True
+            if metric == "Excellent" and val > 0:
+                excellent_nonzero = True
+            if metric == "Good" and val > 0:
+                good_nonzero = True
+            if metric == "Satisfactory" and val > 0:
+                satisfactory_nonzero = True 
+            if metric == "Unsatisfactory" and val > 0:
+                unsatisfactory_nonzero = True
 
         # Assign spacer values based on whether metrics are nonzero
-        if correct_nonzero and partial_nonzero:
+        if excellent_nonzero and good_nonzero:
             spacer_value1 = 0.01
         else:
             spacer_value1 = 0
 
-        if correct_nonzero or partial_nonzero or incorrect_nonzero or idk_nonzero: 
+        if excellent_nonzero or good_nonzero or satisfactory_nonzero or unsatisfactory_nonzero: 
             spacer_value2 = 0.05
         else:
             spacer_value2 = 0
@@ -331,15 +331,15 @@ def generate_graph(logs):
 
     # Custom color map
     color_map = {
-        'Correct': 'rgba(31,255,0,0.4)',
-        'Incorrect': 'rgba(255, 99, 71, 0.8)',
-        'Partially Correct': 'rgba(31,255,0,0.4)',
-        "I don't know": 'rgba(255,255,0,0.7)',
+        'Excellent': 'rgba(31,255,0,0.4)',
+        'Unsatisfactory': 'rgba(255, 99, 71, 0.8)',
+        'Good': 'rgba(31,255,0,0.4)',
+        "Satisfactory": 'rgba(255,255,0,0.7)',
         "Not Reviewed": 'rgba(180, 180, 180, 1)',
         "Spacer1": 'rgba(0,0,0,0)',
         "Spacer2": 'rgba(0,0,0,0)'
     }
-    category_order = ['Correct', 'Spacer1', 'Partially Correct', 'Incorrect', "I don't know", "Spacer2", "Not Reviewed"]
+    category_order = ['Excellent', 'Spacer1', 'Good', 'Satisfactory', "Unsatisfactory", "Spacer2", "Not Reviewed"]
 
     # Step 4: Build the plot
     fig = px.bar(
@@ -449,10 +449,10 @@ def calculate_model_metrics(logs):
         reviewed_logs = [l for l in model_logs if is_reviewed(l)]
         models_metrics[model] = {
             "Not Reviewed": len(model_logs) - len(reviewed_logs),
-            "Correct": cnt(reviewed_logs, "response_review", "Correct"),
-            "Partially Correct": cnt(reviewed_logs, "response_review", "Partially"),
-            "Incorrect": cnt(reviewed_logs, "response_review", "Incorrect"),
-            "I don't know": cnt(reviewed_logs, "response_review", "I Don't Know"),
+            "Excellent": cnt(reviewed_logs, "response_review", "Excellent"),
+            "Good": cnt(reviewed_logs, "response_review", "Good"),
+            "Satisfactory": cnt(reviewed_logs, "response_review", "Satisfactory"),
+            "Unsatisfactory": cnt(reviewed_logs, "response_review", "Unsatisfactory"),
         }
     return models_metrics
 
@@ -469,10 +469,10 @@ def calculate_review_counts(logs):
         "not_reviewed": len(not_reviewed_logs),
         "indep_yes": indep_yes,
         "indep_no": indep_no,
-        "resp_correct": cnt(reviewed_logs, "response_review", "Correct"),
-        "resp_partially": cnt(reviewed_logs, "response_review", "Partially"),
-        "resp_incorrect": cnt(reviewed_logs, "response_review", "Incorrect"),
-        "resp_idk": cnt(reviewed_logs, "response_review", "I Don't Know"),
+        "resp_excellent": cnt(reviewed_logs, "response_review", "Excellent"),
+        "resp_good": cnt(reviewed_logs, "response_review", "Good"),
+        "resp_satisfactory": cnt(reviewed_logs, "response_review", "Satisfactory"),
+        "resp_unsatisfactory": cnt(reviewed_logs, "response_review", "Unsatisfactory"),
         "query_good": cnt(reviewed_logs, "query_review", "Good"),
         "query_acceptable": cnt(reviewed_logs, "query_review", "Acceptable"),
         "query_bad": cnt(reviewed_logs, "query_review", "Bad"),
@@ -520,7 +520,7 @@ def home_route():
         sql = "SELECT * FROM logs WHERE timestamp BETWEEN ? AND ?"
         params = [f"{start_date} 00:00:00,000", f"{end_date} 23:59:59,999"]
 
-        if selected_tool != 'All
+        if selected_tool != 'All':
             sql += " AND tool=?"
             params.append(selected_tool)
         if selected_model != "All":
@@ -597,11 +597,11 @@ def home_route():
     yes_pct = pct(indep_yes, yn_sum)
     no_pct = pct(indep_no, yn_sum)
 
-    r_corr = rc["resp_correct"]
-    r_part = rc["resp_partially"]
-    r_inc = rc["resp_incorrect"]
-    r_idk = rc["resp_idk"]
-    sum_resp = r_corr + r_part + r_inc + r_idk
+    r_excel = rc["resp_excellent"]
+    r_good = rc["resp_good"]
+    r_sat = rc["resp_satisfactory"]
+    r_unsat = rc["resp_unsatisfactory"]
+    sum_resp = r_excel + r_good + r_sat + r_unsat
 
     q_good = rc["query_good"]
     q_acc = rc["query_acceptable"]
@@ -620,10 +620,10 @@ def home_route():
         'independent': f"Is this an independent question for the QA tool? Yes: {indep_yes} ({yes_pct}%), No: {indep_no} ({no_pct}%)",
         'response': (
             f"Response Review (Reviewed + Independent=Yes): "
-            f"Correct: {r_corr} ({pct(r_corr,sum_resp)}%), "
-            f"Partially: {r_part} ({pct(r_part,sum_resp)}%), "
-            f"Incorrect: {r_inc} ({pct(r_inc,sum_resp)}%), "
-            f"I Don't Know: {r_idk} ({pct(r_idk,sum_resp)}%)"
+            f"Excellent: {r_excel} ({pct(r_excel,sum_resp)}%), "
+            f"Good: {r_good} ({pct(r_good,sum_resp)}%), "
+            f"Satisfactory: {r_sat} ({pct(r_sat,sum_resp)}%), "
+            f"Unsatisfactory: {r_unsat} ({pct(r_unsat,sum_resp)}%)"
         ),
         'query': (
             f"Query Review (Reviewed + Independent=Yes): "
@@ -687,11 +687,9 @@ def home_route():
                      "gpt-4o-mini",
                      "qwen2.5-coder:32b",
                      "llama3.3",
-                     "gemma3:1b",
-                     "qwen2.5:latest",
-                     "mistral-large"],
+                     "qwen2.5:latest"],
         is_independent_options=["All", "Yes", "No"],
-        response_review_options=["Correct", "Partially", "Incorrect", "I Don't Know"],
+        response_review_options=["Excellent", "Good", "Satisfactory", "Unsatisfactory"],
         query_review_options=["Good", "Acceptable", "Bad", "I Don't Know"],
         urls_review_options=["Good", "Acceptable", "Bad", "I Don't Know"],
         page=page,
@@ -743,14 +741,14 @@ def update_entry():
             new.update({'response':'', 'query':'', 'urls':''})
         else:
             new['independent'] = 'Yes'
-            if not new['response']: new['response'] = 'Correct'
+            if not new['response']: new['response'] = 'Excellent'
             if not new['query']:    new['query']    = 'Good'
             if not new['urls']:     new['urls']     = 'Good'
 
         reviewer = session.get('user_id', 'anonymous')
         ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        print(f"This is the reviewer: {reviewer}")
+        # print(f"This is the reviewer: {reviewer}")
         # 3) Update the DB
         with sqlite3.connect(DB_FILE) as conn:
             cur = conn.cursor()
@@ -873,11 +871,11 @@ def get_metrics_endpoint():
     yes_pct = pct(indep_yes, yn_sum)
     no_pct = pct(indep_no, yn_sum)
 
-    r_corr = rc["resp_correct"]
-    r_part = rc["resp_partially"]
-    r_inc = rc["resp_incorrect"]
-    r_idk = rc["resp_idk"]
-    sum_resp = r_corr + r_part + r_inc + r_idk
+    r_excel = rc["resp_excellent"]
+    r_good = rc["resp_good"]
+    r_sat = rc["resp_satisfactory"]
+    r_unsat = rc["resp_unsatisfactory"]
+    sum_resp = r_excel + r_good + r_sat + r_unsat
 
     q_good = rc["query_good"]
     q_acc = rc["query_acceptable"]
@@ -895,10 +893,10 @@ def get_metrics_endpoint():
         'overall': f"Total Queries: {total} (100%), Reviewed: {reviewed} ({p_rev}%), Not Reviewed: {not_rev} ({p_not_rev}%)",
         'independent': f"Independent? Yes: {indep_yes} ({yes_pct}%), No: {indep_no} ({no_pct}%)",
         'response': (
-            f"Response Review: Correct {r_corr} ({pct(r_corr,sum_resp)}%), "
-            f"Partially {r_part} ({pct(r_part,sum_resp)}%), "
-            f"Incorrect {r_inc} ({pct(r_inc,sum_resp)}%), "
-            f"I Don't Know {r_idk} ({pct(r_idk,sum_resp)}%)"
+            f"Response Review: Excellent {r_excel} ({pct(r_excel,sum_resp)}%), "
+            f"Good {r_good} ({pct(r_good,sum_resp)}%), "
+            f"Satisfactory {r_sat} ({pct(r_sat,sum_resp)}%), "
+            f"Unsatisfactory {r_unsat} ({pct(r_unsat,sum_resp)}%)"
         ),
         'query': (
             f"Query Review: Good {q_good} ({pct(q_good,sum_q)}%), "

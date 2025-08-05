@@ -300,22 +300,22 @@
             <label>
               <input type="radio" name="response_review_{{ log.id }}" value="Correct"
                 {% if log.response_review=='Correct' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
-              Correct
+              Excellent
             </label>
             <label>
               <input type="radio" name="response_review_{{ log.id }}" value="Partially"
                 {% if log.response_review=='Partially' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
-              Partially
+              Good
             </label>
             <label>
               <input type="radio" name="response_review_{{ log.id }}" value="Incorrect"
                 {% if log.response_review=='Incorrect' %}checked{% endif %} {% if read_only %}disabled{% endif %}>
-              Incorrect
+              Satisfactory
             </label>
             <label>
               <input type="radio" name="response_review_{{ log.id }}" value="I Don't Know"
                 {% if log.response_review=="I Don't Know" %}checked{% endif %} {% if read_only %}disabled{% endif %}>
-              I Don’t Know
+              Unsatisfactory
             </label>
           </div>
         </td>
